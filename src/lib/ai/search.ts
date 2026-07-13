@@ -85,13 +85,13 @@ export interface SearchHit {
 }
 
 // Palabras vacías: muy comunes, aportan poco a la coincidencia léxica.
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   "con", "para", "los", "las", "del", "una", "uno", "que", "por", "como",
   "sus", "sobre", "entre", "experiencia", "anos", "perfil", "trabajo",
 ]);
 
 // Normaliza: minúsculas, sin acentos, solo letras/números y espacios.
-function norm(s: string): string {
+export function norm(s: string): string {
   return s
     .toLowerCase()
     .normalize("NFD")

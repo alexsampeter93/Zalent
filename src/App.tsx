@@ -14,6 +14,7 @@ import { addNote, listNotes, type Note } from "./lib/notes";
 import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
+import { Matching } from "./screens/Matching";
 import "./App.css";
 
 interface CandidateForm {
@@ -719,7 +720,7 @@ function App() {
         </div>
       )}
 
-      {screen === "vacantes" && <ComingSoon title="Vacantes" pose="magnifier" />}
+      {screen === "vacantes" && <Matching />}
       {screen === "pipeline" && <ComingSoon title="Pipeline" />}
       {screen === "panel" && <ComingSoon title="Panel" />}
       {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}
