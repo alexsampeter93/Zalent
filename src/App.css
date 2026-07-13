@@ -186,6 +186,27 @@ button:disabled {
 }
 
 /* Detalle del candidato */
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.detail-head .card__title {
+  margin-bottom: 0;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+}
+
+.btn-secondary:hover {
+  background: #eef2ff;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

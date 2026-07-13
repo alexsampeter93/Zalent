@@ -121,3 +121,60 @@ export async function getCandidate(id: number): Promise<CandidateDetail | null> 
 
   return { ...rows[0], skills, languages };
 }
+
+// Campos editables de una ficha (sin raw_text ni source_file, que no se tocan).
+export interface CandidateUpdate {
+  full_name: string;
+  email: string;
+  phone: string;
+  location: string;
+  headline: string;
+  years_experience: number | null;
+  education: string;
+  links: string;
+  skills: string[];
+  languages: string[];
+}
+
+// Actualiza la ficha y reemplaza sus skills/idiomas por los nuevos.
+export async function updateCandidate(
+  id: number,
+  c: CandidateUpdate,
+): Promise<void> {
+  const db = await getDb();
+
+  await db.execute(
+    `UPDATE candidates SET
+       full_name = $1, email = $2, phone = $3, location = $4, headline = $5,
+       years_experience = $6, education = $7, links = $8,
+       updated_at = datetime('now')
+     WHERE id = $9`,
+    [
+      orNull(c.full_name),
+      orNull(c.email),
+      orNull(c.phone),
+      orNull(c.location),
+      orNull(c.headline),
+      c.years_experience,
+      orNull(c.education),
+      orNull(c.links),
+      id,
+    ],
+  );
+
+  // Skills e idiomas: borrar los antiguos y volver a insertar la lista nueva.
+  await db.execute("DELETE FROM skills WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM languages WHERE candidate_id = $1", [id]);
+  for (const name of c.skills) {
+    await db.execute("INSERT INTO skills (candidate_id, name) VALUES ($1, $2)", [
+      id,
+      name,
+    ]);
+  }
+  for (const name of c.languages) {
+    await db.execute(
+      "INSERT INTO languages (candidate_id, name) VALUES ($1, $2)",
+      [id, name],
+    );
+  }
+}

@@ -5,6 +5,7 @@ import {
   saveCandidate,
   listCandidates,
   getCandidate,
+  updateCandidate,
   type CandidateRow,
   type CandidateDetail,
 } from "./lib/candidates";
@@ -77,6 +78,11 @@ function App() {
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<CandidateDetail | null>(null);
+
+  // --- Edición del candidato seleccionado ---
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<CandidateForm>(emptyForm);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // --- Notas del candidato seleccionado ---
   const [notes, setNotes] = useState<Note[]>([]);
@@ -197,11 +203,61 @@ function App() {
   async function selectCandidate(id: number) {
     setSelectedId(id);
     setNewNote("");
+    setEditing(false);
     try {
       setDetail(await getCandidate(id));
       setNotes(await listNotes(id));
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  function startEdit() {
+    if (!detail) return;
+    setEditForm({
+      full_name: detail.full_name ?? "",
+      email: detail.email ?? "",
+      phone: detail.phone ?? "",
+      location: detail.location ?? "",
+      headline: detail.headline ?? "",
+      years_experience: detail.years_experience?.toString() ?? "",
+      education: detail.education ?? "",
+      links: detail.links ?? "",
+      skills: detail.skills.join(", "),
+      languages: detail.languages.join(", "),
+    });
+    setEditing(true);
+  }
+
+  function setEditField<K extends keyof CandidateForm>(key: K, value: string) {
+    setEditForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function onUpdate() {
+    if (selectedId == null) return;
+    setSavingEdit(true);
+    try {
+      const raw = editForm.years_experience.trim().replace(",", ".");
+      const years = raw === "" ? null : Number(raw);
+      await updateCandidate(selectedId, {
+        full_name: editForm.full_name,
+        email: editForm.email,
+        phone: editForm.phone,
+        location: editForm.location,
+        headline: editForm.headline,
+        years_experience: years !== null && !Number.isNaN(years) ? years : null,
+        education: editForm.education,
+        links: editForm.links,
+        skills: splitList(editForm.skills),
+        languages: splitList(editForm.languages),
+      });
+      setEditing(false);
+      setDetail(await getCandidate(selectedId));
+      await refreshCandidates();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -284,38 +340,7 @@ function App() {
             guardar.
           </p>
 
-          <div className="form-grid">
-            <Field label="Nombre">
-              <input value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
-            </Field>
-            <Field label="Email">
-              <input value={form.email} onChange={(e) => set("email", e.target.value)} />
-            </Field>
-            <Field label="Teléfono">
-              <input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
-            </Field>
-            <Field label="Ubicación">
-              <input value={form.location} onChange={(e) => set("location", e.target.value)} />
-            </Field>
-            <Field label="Último puesto / titular">
-              <input value={form.headline} onChange={(e) => set("headline", e.target.value)} />
-            </Field>
-            <Field label="Años de experiencia">
-              <input inputMode="decimal" value={form.years_experience} onChange={(e) => set("years_experience", e.target.value)} />
-            </Field>
-            <Field label="Estudios">
-              <input value={form.education} onChange={(e) => set("education", e.target.value)} />
-            </Field>
-            <Field label="Enlaces (LinkedIn…)">
-              <input value={form.links} onChange={(e) => set("links", e.target.value)} />
-            </Field>
-            <Field label="Skills (separadas por comas)">
-              <input value={form.skills} onChange={(e) => set("skills", e.target.value)} />
-            </Field>
-            <Field label="Idiomas (separados por comas)">
-              <input value={form.languages} onChange={(e) => set("languages", e.target.value)} />
-            </Field>
-          </div>
+          <CandidateFieldsForm form={form} onChange={set} />
 
           <div className="actions">
             <button onClick={onSave} disabled={saving}>
@@ -360,21 +385,47 @@ function App() {
 
       {detail && (
         <section className="card">
-          <p className="card__title">{detail.full_name || "(sin nombre)"}</p>
-          <div className="detail-grid">
-            <Info label="Email" value={detail.email} />
-            <Info label="Teléfono" value={detail.phone} />
-            <Info label="Ubicación" value={detail.location} />
-            <Info label="Último puesto" value={detail.headline} />
-            <Info
-              label="Años de experiencia"
-              value={detail.years_experience?.toString() ?? null}
-            />
-            <Info label="Estudios" value={detail.education} />
-            <Info label="Enlaces" value={detail.links} />
-            <Info label="Skills" value={detail.skills.join(", ") || null} />
-            <Info label="Idiomas" value={detail.languages.join(", ") || null} />
+          <div className="detail-head">
+            <p className="card__title">{detail.full_name || "(sin nombre)"}</p>
+            {!editing && (
+              <button className="btn-secondary" onClick={startEdit}>
+                Editar
+              </button>
+            )}
           </div>
+
+          {editing ? (
+            <>
+              <CandidateFieldsForm form={editForm} onChange={setEditField} />
+              <div className="actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setEditing(false)}
+                  disabled={savingEdit}
+                >
+                  Cancelar
+                </button>
+                <button onClick={onUpdate} disabled={savingEdit}>
+                  {savingEdit ? "Guardando…" : "Guardar cambios"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="detail-grid">
+              <Info label="Email" value={detail.email} />
+              <Info label="Teléfono" value={detail.phone} />
+              <Info label="Ubicación" value={detail.location} />
+              <Info label="Último puesto" value={detail.headline} />
+              <Info
+                label="Años de experiencia"
+                value={detail.years_experience?.toString() ?? null}
+              />
+              <Info label="Estudios" value={detail.education} />
+              <Info label="Enlaces" value={detail.links} />
+              <Info label="Skills" value={detail.skills.join(", ") || null} />
+              <Info label="Idiomas" value={detail.languages.join(", ") || null} />
+            </div>
+          )}
 
           <p className="card__title notes-title">Notas ({notes.length})</p>
           <div className="note-add">
@@ -406,6 +457,50 @@ function App() {
 
       <footer className="foot">Fase 1 · Datos + Ingesta</footer>
     </main>
+  );
+}
+
+// Formulario de campos de una ficha, reutilizado en "revisar" y en "editar".
+function CandidateFieldsForm({
+  form,
+  onChange,
+}: {
+  form: CandidateForm;
+  onChange: <K extends keyof CandidateForm>(key: K, value: string) => void;
+}) {
+  return (
+    <div className="form-grid">
+      <Field label="Nombre">
+        <input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} />
+      </Field>
+      <Field label="Email">
+        <input value={form.email} onChange={(e) => onChange("email", e.target.value)} />
+      </Field>
+      <Field label="Teléfono">
+        <input value={form.phone} onChange={(e) => onChange("phone", e.target.value)} />
+      </Field>
+      <Field label="Ubicación">
+        <input value={form.location} onChange={(e) => onChange("location", e.target.value)} />
+      </Field>
+      <Field label="Último puesto / titular">
+        <input value={form.headline} onChange={(e) => onChange("headline", e.target.value)} />
+      </Field>
+      <Field label="Años de experiencia">
+        <input inputMode="decimal" value={form.years_experience} onChange={(e) => onChange("years_experience", e.target.value)} />
+      </Field>
+      <Field label="Estudios">
+        <input value={form.education} onChange={(e) => onChange("education", e.target.value)} />
+      </Field>
+      <Field label="Enlaces (LinkedIn…)">
+        <input value={form.links} onChange={(e) => onChange("links", e.target.value)} />
+      </Field>
+      <Field label="Skills (separadas por comas)">
+        <input value={form.skills} onChange={(e) => onChange("skills", e.target.value)} />
+      </Field>
+      <Field label="Idiomas (separados por comas)">
+        <input value={form.languages} onChange={(e) => onChange("languages", e.target.value)} />
+      </Field>
+    </div>
   );
 }
 
