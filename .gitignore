@@ -1,0 +1,37 @@
+# Dependencias
+node_modules/
+
+# Builds del frontend
+dist/
+dist-ssr/
+*.local
+
+# Tauri (Rust) — artefactos de compilación
+src-tauri/target/
+
+# Logs y cachés
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vite/
+
+# Entornos y secretos
+.env
+.env.*
+!.env.example
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Base de datos local de desarrollo (datos personales — nunca al repo)
+*.sqlite
+*.sqlite3
+*.db
