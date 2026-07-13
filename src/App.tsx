@@ -11,8 +11,8 @@ import {
   type CandidateDetail,
 } from "./lib/candidates";
 import { addNote, listNotes, type Note } from "./lib/notes";
-import { AiProbe } from "./components/AiProbe";
 import { SearchLab } from "./components/SearchLab";
+import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import "./App.css";
 
 interface CandidateForm {
@@ -48,14 +48,14 @@ function splitList(value: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-// La BD guarda la fecha en UTC ("2026-07-13 10:48:06"). La mostramos en la
-// hora local del usuario.
 function formatDateTime(sqlUtc: string): string {
   const d = new Date(sqlUtc.replace(" ", "T") + "Z");
   return isNaN(d.getTime()) ? sqlUtc : d.toLocaleString();
 }
 
 function App() {
+  const [screen, setScreen] = useState<Screen>("candidatos");
+
   // --- Importación / extracción ---
   const [fileName, setFileName] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -68,7 +68,7 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  // --- Importación en lote (varios CVs de golpe) ---
+  // --- Importación en lote ---
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchDone, setBatchDone] = useState(0);
@@ -82,7 +82,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<CandidateDetail | null>(null);
 
-  // --- Edición del candidato seleccionado ---
+  // --- Edición ---
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<CandidateForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -91,7 +91,7 @@ function App() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // --- Notas del candidato seleccionado ---
+  // --- Notas ---
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -115,7 +115,6 @@ function App() {
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setFileName(file.name);
     setExtractedText("");
     setExtractError("");
@@ -132,17 +131,14 @@ function App() {
     }
   }
 
-  // Procesa varios archivos en fila: extrae, detecta lo básico y auto-guarda.
   async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
-
     setBatchRunning(true);
     setBatchTotal(files.length);
     setBatchDone(0);
     setBatchErrors([]);
     const errors: { name: string; error: string }[] = [];
-
     for (const file of files) {
       try {
         const text = await extractText(file);
@@ -166,7 +162,6 @@ function App() {
       }
       setBatchDone((d) => d + 1);
     }
-
     setBatchErrors(errors);
     setBatchRunning(false);
     setBatchKey((k) => k + 1);
@@ -179,7 +174,6 @@ function App() {
     try {
       const raw = form.years_experience.trim().replace(",", ".");
       const years = raw === "" ? null : Number(raw);
-
       await saveCandidate({
         full_name: form.full_name,
         email: form.email,
@@ -194,7 +188,6 @@ function App() {
         skills: splitList(form.skills),
         languages: splitList(form.languages),
       });
-
       setForm(emptyForm);
       setExtractedText("");
       setFileName("");
@@ -300,224 +293,262 @@ function App() {
   }
 
   return (
-    <main className="container">
-      <header className="hero">
-        <h1 className="brand">Zalent</h1>
-        <p className="tagline">Gestor de CVs y talento local-first con IA</p>
-      </header>
-
-      <AiProbe />
-      <SearchLab />
-
-      <section className="card">
-        <p className="card__title">1 · Importar un CV y revisarlo (PDF o Word)</p>
-        <input
-          key={fileKey}
-          type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={onFileChange}
-        />
-        {extracting && <p className="card__intro">Leyendo el documento…</p>}
-        {extractError && <p className="db-error">Error: {extractError}</p>}
-      </section>
-
-      <section className="card">
-        <p className="card__title">Importar varios a la vez (lote automático)</p>
-        <p className="card__intro">
-          Selecciona varios CVs: se guardan solos con lo que se detecte (nombre,
-          email, teléfono, enlace) y el texto completo. El resto se completa
-          luego.
-        </p>
-        <input
-          key={batchKey}
-          type="file"
-          multiple
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={onBatchChange}
-          disabled={batchRunning}
-        />
-        {batchRunning && (
-          <p className="card__intro">
-            Procesando {batchDone} / {batchTotal}…
-          </p>
-        )}
-        {!batchRunning && batchTotal > 0 && (
-          <p className="db-ok">
-            ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
-            {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
-          </p>
-        )}
-        {batchErrors.length > 0 && (
-          <ul className="batch-errors">
-            {batchErrors.map((er) => (
-              <li key={er.name}>
-                {er.name}: {er.error}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {extractedText && (
-        <section className="card">
-          <p className="card__title">2 · Revisar la ficha</p>
-          <p className="card__intro">
-            Auto-rellenado desde <strong>{fileName}</strong> (
-            {extractedText.length} caracteres). Revisa y completa antes de
-            guardar.
-          </p>
-
-          <CandidateFieldsForm form={form} onChange={set} />
-
-          <div className="actions">
-            <button onClick={onSave} disabled={saving}>
-              {saving ? "Guardando…" : "Guardar candidato"}
-            </button>
-          </div>
-          {saveError && <p className="db-error">Error: {saveError}</p>}
-
-          <details className="raw-details">
-            <summary>Ver texto extraído del CV</summary>
-            <textarea className="cv-text" readOnly value={extractedText} rows={10} />
-          </details>
-        </section>
-      )}
-
-      <section className="card">
-        <p className="card__title">Candidatos guardados ({candidates.length})</p>
-        {candidates.length === 0 ? (
-          <p className="card__intro">Aún no hay candidatos. Importa un CV.</p>
-        ) : (
-          <ul className="candidate-list">
-            {candidates.map((c) => (
-              <li key={c.id}>
-                <button
-                  className={
-                    "candidate-item" + (selectedId === c.id ? " is-selected" : "")
-                  }
-                  onClick={() => selectCandidate(c.id)}
-                >
-                  <span className="candidate-name">
-                    {c.full_name || "(sin nombre)"}
-                  </span>
-                  <span className="candidate-meta">
-                    {c.email || "—"} · {c.source_file || "—"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {detail && (
-        <section className="card">
-          <div className="detail-head">
-            <p className="card__title">{detail.full_name || "(sin nombre)"}</p>
-            {!editing && !confirmingDelete && (
-              <div className="detail-actions">
-                <button className="btn-secondary" onClick={startEdit}>
-                  Editar
-                </button>
-                <button
-                  className="btn-danger"
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  Borrar
-                </button>
-              </div>
-            )}
+    <AppShell active={screen} onNavigate={setScreen}>
+      {screen === "candidatos" && (
+        <div className="screen">
+          <div className="screen__head">
+            <h1 className="screen__title">Candidatos</h1>
+            <p className="screen__sub">
+              Busca por significado y gestiona tus fichas.
+            </p>
           </div>
 
-          {confirmingDelete && (
-            <div className="confirm-delete">
-              <p className="confirm-delete__text">
-                ¿Borrar a <strong>{detail.full_name || "(sin nombre)"}</strong>{" "}
-                definitivamente? Se eliminarán su ficha, skills, idiomas y notas.
-                Esta acción no se puede deshacer.
+          <SearchLab />
+
+          <section className="card">
+            <p className="card__title">
+              Todos los candidatos ({candidates.length})
+            </p>
+            {candidates.length === 0 ? (
+              <p className="card__intro">
+                Aún no hay candidatos. Ve a Importar para añadir CVs.
               </p>
-              <div className="actions">
+            ) : (
+              <ul className="candidate-list">
+                {candidates.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      className={
+                        "candidate-item" +
+                        (selectedId === c.id ? " is-selected" : "")
+                      }
+                      onClick={() => selectCandidate(c.id)}
+                    >
+                      <span className="candidate-name">
+                        {c.full_name || "(sin nombre)"}
+                      </span>
+                      <span className="candidate-meta">
+                        {c.email || "—"} · {c.source_file || "—"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {detail && (
+            <section className="card">
+              <div className="detail-head">
+                <p className="card__title">
+                  {detail.full_name || "(sin nombre)"}
+                </p>
+                {!editing && !confirmingDelete && (
+                  <div className="detail-actions">
+                    <button className="btn-secondary" onClick={startEdit}>
+                      Editar
+                    </button>
+                    <button
+                      className="btn-danger"
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      Borrar
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {confirmingDelete && (
+                <div className="confirm-delete">
+                  <p className="confirm-delete__text">
+                    ¿Borrar a{" "}
+                    <strong>{detail.full_name || "(sin nombre)"}</strong>{" "}
+                    definitivamente? Se eliminarán su ficha, skills, idiomas y
+                    notas. Esta acción no se puede deshacer.
+                  </p>
+                  <div className="actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={deleting}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className="btn-danger"
+                      onClick={onDelete}
+                      disabled={deleting}
+                    >
+                      {deleting ? "Borrando…" : "Sí, borrar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {editing ? (
+                <>
+                  <CandidateFieldsForm form={editForm} onChange={setEditField} />
+                  <div className="actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setEditing(false)}
+                      disabled={savingEdit}
+                    >
+                      Cancelar
+                    </button>
+                    <button onClick={onUpdate} disabled={savingEdit}>
+                      {savingEdit ? "Guardando…" : "Guardar cambios"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="detail-grid">
+                  <Info label="Email" value={detail.email} />
+                  <Info label="Teléfono" value={detail.phone} />
+                  <Info label="Ubicación" value={detail.location} />
+                  <Info label="Último puesto" value={detail.headline} />
+                  <Info
+                    label="Años de experiencia"
+                    value={detail.years_experience?.toString() ?? null}
+                  />
+                  <Info label="Estudios" value={detail.education} />
+                  <Info label="Enlaces" value={detail.links} />
+                  <Info label="Skills" value={detail.skills.join(", ") || null} />
+                  <Info
+                    label="Idiomas"
+                    value={detail.languages.join(", ") || null}
+                  />
+                </div>
+              )}
+
+              <p className="card__title notes-title">Notas ({notes.length})</p>
+              <div className="note-add">
+                <textarea
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Escribe una nota sobre este candidato…"
+                  rows={3}
+                />
                 <button
-                  className="btn-secondary"
-                  onClick={() => setConfirmingDelete(false)}
-                  disabled={deleting}
+                  onClick={onAddNote}
+                  disabled={savingNote || newNote.trim() === ""}
                 >
-                  Cancelar
-                </button>
-                <button className="btn-danger" onClick={onDelete} disabled={deleting}>
-                  {deleting ? "Borrando…" : "Sí, borrar"}
+                  {savingNote ? "Añadiendo…" : "Añadir nota"}
                 </button>
               </div>
-            </div>
-          )}
 
-          {editing ? (
-            <>
-              <CandidateFieldsForm form={editForm} onChange={setEditField} />
-              <div className="actions">
-                <button
-                  className="btn-secondary"
-                  onClick={() => setEditing(false)}
-                  disabled={savingEdit}
-                >
-                  Cancelar
-                </button>
-                <button onClick={onUpdate} disabled={savingEdit}>
-                  {savingEdit ? "Guardando…" : "Guardar cambios"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="detail-grid">
-              <Info label="Email" value={detail.email} />
-              <Info label="Teléfono" value={detail.phone} />
-              <Info label="Ubicación" value={detail.location} />
-              <Info label="Último puesto" value={detail.headline} />
-              <Info
-                label="Años de experiencia"
-                value={detail.years_experience?.toString() ?? null}
-              />
-              <Info label="Estudios" value={detail.education} />
-              <Info label="Enlaces" value={detail.links} />
-              <Info label="Skills" value={detail.skills.join(", ") || null} />
-              <Info label="Idiomas" value={detail.languages.join(", ") || null} />
-            </div>
+              {notes.length === 0 ? (
+                <p className="card__intro">Sin notas todavía.</p>
+              ) : (
+                <ul className="note-list">
+                  {notes.map((n) => (
+                    <li key={n.id} className="note-item">
+                      <div className="note-date">
+                        {formatDateTime(n.created_at)}
+                      </div>
+                      <div className="note-body">{n.body}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           )}
-
-          <p className="card__title notes-title">Notas ({notes.length})</p>
-          <div className="note-add">
-            <textarea
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Escribe una nota sobre este candidato…"
-              rows={3}
-            />
-            <button onClick={onAddNote} disabled={savingNote || newNote.trim() === ""}>
-              {savingNote ? "Añadiendo…" : "Añadir nota"}
-            </button>
-          </div>
-
-          {notes.length === 0 ? (
-            <p className="card__intro">Sin notas todavía.</p>
-          ) : (
-            <ul className="note-list">
-              {notes.map((n) => (
-                <li key={n.id} className="note-item">
-                  <div className="note-date">{formatDateTime(n.created_at)}</div>
-                  <div className="note-body">{n.body}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
       )}
 
-      <footer className="foot">Fase 1 · Datos + Ingesta</footer>
-    </main>
+      {screen === "importar" && (
+        <div className="screen">
+          <div className="screen__head">
+            <h1 className="screen__title">Importar</h1>
+            <p className="screen__sub">
+              Arrastra CVs (PDF o Word) y se convierten en fichas.
+            </p>
+          </div>
+
+          <section className="card">
+            <p className="card__title">Importar un CV y revisarlo</p>
+            <input
+              key={fileKey}
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={onFileChange}
+            />
+            {extracting && <p className="card__intro">Leyendo el documento…</p>}
+            {extractError && <p className="db-error">Error: {extractError}</p>}
+          </section>
+
+          <section className="card">
+            <p className="card__title">Importar varios a la vez (lote)</p>
+            <p className="card__intro">
+              Se guardan solos con lo que se detecte (nombre, email, teléfono,
+              enlace) y el texto completo. El resto se completa luego.
+            </p>
+            <input
+              key={batchKey}
+              type="file"
+              multiple
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={onBatchChange}
+              disabled={batchRunning}
+            />
+            {batchRunning && (
+              <p className="card__intro">
+                Procesando {batchDone} / {batchTotal}…
+              </p>
+            )}
+            {!batchRunning && batchTotal > 0 && (
+              <p className="db-ok">
+                ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
+                {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
+              </p>
+            )}
+            {batchErrors.length > 0 && (
+              <ul className="batch-errors">
+                {batchErrors.map((er) => (
+                  <li key={er.name}>
+                    {er.name}: {er.error}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {extractedText && (
+            <section className="card">
+              <p className="card__title">Revisar la ficha</p>
+              <p className="card__intro">
+                Auto-rellenado desde <strong>{fileName}</strong> (
+                {extractedText.length} caracteres). Revisa y completa.
+              </p>
+              <CandidateFieldsForm form={form} onChange={set} />
+              <div className="actions">
+                <button onClick={onSave} disabled={saving}>
+                  {saving ? "Guardando…" : "Guardar candidato"}
+                </button>
+              </div>
+              {saveError && <p className="db-error">Error: {saveError}</p>}
+              <details className="raw-details">
+                <summary>Ver texto extraído del CV</summary>
+                <textarea
+                  className="cv-text"
+                  readOnly
+                  value={extractedText}
+                  rows={10}
+                />
+              </details>
+            </section>
+          )}
+        </div>
+      )}
+
+      {screen === "vacantes" && <ComingSoon title="Vacantes" pose="magnifier" />}
+      {screen === "pipeline" && <ComingSoon title="Pipeline" />}
+      {screen === "panel" && <ComingSoon title="Panel" />}
+      {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}
+    </AppShell>
   );
 }
 
-// Formulario de campos de una ficha, reutilizado en "revisar" y en "editar".
 function CandidateFieldsForm({
   form,
   onChange,

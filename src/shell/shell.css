@@ -1,0 +1,270 @@
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 258px 1fr;
+  overflow: hidden;
+}
+
+/* ---------- Menú lateral (marco fijo, oscuro en ambos temas) ---------- */
+.rail {
+  background: var(--rail);
+  color: var(--rail-ink);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 20px;
+  gap: 4px;
+}
+
+/* --- Olaz con efecto bat-signal (haz + glow) --- */
+.rail__hero {
+  position: relative;
+  height: 172px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: visible;
+}
+.coco-beam {
+  position: absolute;
+  z-index: 0;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 224px;
+  height: 210px;
+  background: linear-gradient(
+    180deg,
+    rgba(240, 201, 135, 0.5) 0%,
+    rgba(240, 201, 135, 0.14) 55%,
+    rgba(240, 201, 135, 0) 100%
+  );
+  clip-path: polygon(50% 100%, 8% 0%, 92% 0%);
+  animation: beam-pulse 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.coco-glow {
+  position: absolute;
+  z-index: 1;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 224, 170, 0.5) 0%,
+    rgba(255, 224, 170, 0) 70%
+  );
+  animation: glow-pulse 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.coco-logo {
+  position: relative;
+  z-index: 2;
+  width: 116px;
+  height: auto;
+  filter: drop-shadow(0 0 22px rgba(255, 214, 140, 0.55));
+}
+@keyframes beam-pulse {
+  0%, 100% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
+  50% { opacity: 0.85; transform: translateX(-50%) scaleY(1.04); }
+}
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.9; }
+}
+
+.rail__name {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  line-height: 1;
+  text-align: center;
+  color: #fff;
+  margin-top: 6px;
+}
+.rail__tag {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--rail-muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.rail__section {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--rail-muted);
+  padding: 12px 8px 6px;
+}
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: var(--rail-ink);
+  font: inherit;
+  font-size: 13.5px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.nav-item.active {
+  background: rgba(240, 201, 135, 0.12);
+  color: var(--rail-active-ink);
+  font-weight: 600;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: -9px;
+  width: 34px;
+  height: 46px;
+  background: radial-gradient(
+    ellipse at 50% 100%,
+    rgba(240, 201, 135, 0.5),
+    rgba(240, 201, 135, 0) 70%
+  );
+  pointer-events: none;
+}
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.nav-item span {
+  flex: 1;
+}
+
+.rail__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--rail-ink);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.theme-toggle svg {
+  width: 15px;
+  height: 15px;
+  color: var(--gold);
+}
+.privacy {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11.5px;
+  color: var(--rail-muted);
+  line-height: 1.45;
+}
+.privacy svg {
+  width: 15px;
+  height: 15px;
+  color: var(--gold);
+  flex: none;
+  margin-top: 1px;
+}
+.privacy b {
+  color: var(--rail-ink);
+  font-weight: 600;
+}
+
+/* ---------- Zona de contenido (scroll interno) ---------- */
+.content {
+  overflow-y: auto;
+  padding: 28px 32px 60px;
+  background: var(--cream);
+}
+.screen {
+  max-width: 780px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.screen__head {
+  margin-bottom: 2px;
+}
+.screen__title {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  margin: 0;
+  color: var(--ink);
+}
+.screen__sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+}
+
+.coming {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+.coming img {
+  width: 170px;
+  height: 170px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.18));
+}
+.coming h3 {
+  margin: 14px 0 4px;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 66px 1fr;
+  }
+  .rail__hero {
+    height: 66px;
+  }
+  .coco-logo {
+    width: 44px;
+  }
+  .coco-beam,
+  .coco-glow {
+    display: none;
+  }
+  .rail__name,
+  .rail__tag,
+  .nav-item span,
+  .rail__section,
+  .privacy span,
+  .theme-toggle span {
+    display: none;
+  }
+  .nav-item {
+    justify-content: center;
+  }
+}

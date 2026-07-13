@@ -116,7 +116,7 @@ export function SearchLab() {
                 <span
                   style={{
                     fontFamily: "var(--mono, monospace)",
-                    color: "#059669",
+                    color: "var(--good)",
                     fontWeight: 700,
                   }}
                 >
@@ -127,7 +127,7 @@ export function SearchLab() {
                 className="meter"
                 style={{
                   height: 4,
-                  background: "#e5e7eb",
+                  background: "var(--border)",
                   borderRadius: 3,
                   marginTop: 6,
                 }}
@@ -137,7 +137,7 @@ export function SearchLab() {
                     display: "block",
                     height: "100%",
                     width: `${Math.max(0, h.score * 100)}%`,
-                    background: "#4f46e5",
+                    background: "var(--gold-deep)",
                     borderRadius: 3,
                   }}
                 />
@@ -148,7 +148,7 @@ export function SearchLab() {
                     margin: "8px 0 0",
                     fontSize: "12.5px",
                     color: "var(--muted, #6b7280)",
-                    borderLeft: "2px solid #4f46e5",
+                    borderLeft: "2px solid var(--gold-deep)",
                     paddingLeft: "10px",
                     lineHeight: 1.5,
                   }}

@@ -1,0 +1,112 @@
+/* Tema Olaz — paleta cálida (café/dorado/crema), serif+sans, con modo claro
+   y oscuro. Las fuentes se cargan desde main.tsx (@fontsource). */
+
+:root {
+  color-scheme: light;
+
+  /* --- Tokens de CONTENIDO (cambian con el tema) --- */
+  --cream: #f6f1e5;
+  --surface: #fffefb;
+  --surface-2: #faf5ea;
+  --ink: #1c1710;
+  --muted: #6f6353;
+  --faint: #a2937b;
+  --border: #e6dcc4;
+  --evidence: #f7e2a6;
+  --evidence-ink: #5c4611;
+  --danger-soft: #f9ece8;
+  --danger-ink: #8a2e1f;
+  --good: #4b7d3a;
+  --accent-soft: #f4e7c8;
+
+  /* --- Tokens de MARCA (fijos en ambos temas) --- */
+  --rail: #15120d;
+  --rail-ink: #e9dcc0;
+  --rail-active-ink: #f3ead9;
+  --rail-muted: #a89a83;
+  --gold: #f0c987;
+  --gold-light: #ffd68c;
+  --gold-deep: #d9a94e;
+  --accent: #f0c987;
+  --accent-ink: #1c1710;
+  --danger: #b4432f;
+
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Work Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --r: 12px;
+  --r-sm: 8px;
+  --shadow: 0 4px 18px rgba(0, 0, 0, 0.09);
+}
+
+/* Modo oscuro (contenido). El sidebar sigue oscuro en ambos. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cream: #17130c;
+  --surface: #221b12;
+  --surface-2: #1c160d;
+  --ink: #efe7d6;
+  --muted: #b3a488;
+  --faint: #8c7f68;
+  --border: #322818;
+  --evidence: #4c3b12;
+  --evidence-ink: #f7e2a6;
+  --danger-soft: #3a1e17;
+  --danger-ink: #f0b3a6;
+  --good: #7bb36a;
+  --accent-soft: #3a2f18;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Sigue la preferencia del sistema si el usuario no ha elegido tema. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --cream: #17130c;
+    --surface: #221b12;
+    --surface-2: #1c160d;
+    --ink: #efe7d6;
+    --muted: #b3a488;
+    --faint: #8c7f68;
+    --border: #322818;
+    --evidence: #4c3b12;
+    --evidence-ink: #f7e2a6;
+    --danger-soft: #3a1e17;
+    --danger-ink: #f0b3a6;
+    --good: #7bb36a;
+    --accent-soft: #3a2f18;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
