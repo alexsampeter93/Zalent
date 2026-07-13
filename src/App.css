@@ -108,6 +108,19 @@ button:focus {
   color: #059669;
 }
 
+.db-ok {
+  margin: 0;
+  font-weight: 600;
+  color: #059669;
+}
+
+.db-error {
+  margin: 0;
+  font-weight: 600;
+  color: #dc2626;
+  word-break: break-word;
+}
+
 .foot {
   color: #9ca3af;
   font-size: 0.85rem;
