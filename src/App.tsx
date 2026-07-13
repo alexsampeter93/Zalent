@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { extractPdfText } from "./lib/pdf";
+import { extractText } from "./lib/extract";
 import { guessFields } from "./lib/parse";
 import {
   saveCandidate,
@@ -100,7 +100,7 @@ function App() {
     setSaveError("");
     setExtracting(true);
     try {
-      const text = await extractPdfText(file);
+      const text = await extractText(file);
       setExtractedText(text);
       setForm({ ...emptyForm, ...guessFields(text) });
     } catch (err) {
@@ -177,11 +177,11 @@ function App() {
       </header>
 
       <section className="card">
-        <p className="card__title">1 · Importar un CV (PDF)</p>
+        <p className="card__title">1 · Importar un CV (PDF o Word)</p>
         <input
           key={fileKey}
           type="file"
-          accept="application/pdf"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={onFileChange}
         />
         {extracting && <p className="card__intro">Leyendo el PDF…</p>}
