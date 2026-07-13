@@ -142,18 +142,39 @@ export function SearchLab() {
                   }}
                 />
               </div>
-              <p
-                style={{
-                  margin: "8px 0 0",
-                  fontSize: "12.5px",
-                  color: "var(--muted, #6b7280)",
-                  borderLeft: "2px solid #4f46e5",
-                  paddingLeft: "10px",
-                  lineHeight: 1.5,
-                }}
-              >
-                {highlight(h.evidence, query)}
-              </p>
+              {h.evidence && (
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: "12.5px",
+                    color: "var(--muted, #6b7280)",
+                    borderLeft: "2px solid #4f46e5",
+                    paddingLeft: "10px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {highlight(h.evidence, query)}
+                </p>
+              )}
+              {h.matched.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+                  {h.matched.map((m) => (
+                    <span
+                      key={m}
+                      style={{
+                        fontSize: "11px",
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                        background: "#fef3c7",
+                        color: "#92400e",
+                        fontWeight: 600,
+                      }}
+                    >
+                      coincide: {m}
+                    </span>
+                  ))}
+                </div>
+              )}
             </li>
           ))}
         </ul>

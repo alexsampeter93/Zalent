@@ -77,51 +77,142 @@ export interface SearchHit {
   full_name: string | null;
   headline: string | null;
   source_file: string | null;
-  score: number;
+  score: number; // similitud SEMÁNTICA (para mostrar como "encaje")
   evidence: string; // el fragmento del CV que mejor encajó
+  matched: string[]; // términos de la búsqueda que coinciden LITERALMENTE
 }
 
-// Busca por significado a nivel de fragmento: para cada candidato nos quedamos
-// con su mejor trozo (score + texto = evidencia) y ordenamos por ese score.
+// Palabras vacías: muy comunes, aportan poco a la coincidencia léxica.
+const STOPWORDS = new Set([
+  "con", "para", "los", "las", "del", "una", "uno", "que", "por", "como",
+  "sus", "sobre", "entre", "experiencia", "anos", "perfil", "trabajo",
+]);
+
+// Normaliza: minúsculas, sin acentos, solo letras/números y espacios.
+function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function queryTerms(query: string): string[] {
+  return Array.from(
+    new Set(
+      norm(query)
+        .split(" ")
+        .filter((t) => t.length >= 3 && !STOPWORDS.has(t)),
+    ),
+  );
+}
+
+// Dado un orden de ids, devuelve id -> posición (1 = el mejor).
+function rankMap(orderedIds: number[]): Map<number, number> {
+  const m = new Map<number, number>();
+  orderedIds.forEach((id, i) => m.set(id, i + 1));
+  return m;
+}
+
+// Búsqueda HÍBRIDA: fusiona la señal semántica (significado) con la léxica
+// (coincidencia exacta de palabras, TF-IDF) usando Reciprocal Rank Fusion.
 export async function search(query: string, limit = 20): Promise<SearchHit[]> {
   const db = await getDb();
   const q = await embed(query);
 
-  const rows = await db.select<
-    {
-      candidate_id: number;
-      text: string;
-      vector: string;
-      full_name: string | null;
-      headline: string | null;
-      source_file: string | null;
-    }[]
+  // --- 1) Semántica: mejor fragmento por candidato (score + evidencia) ---
+  const chunkRows = await db.select<
+    { candidate_id: number; text: string; vector: string }[]
   >(
-    `SELECT ch.candidate_id, ch.text, ch.vector,
-            c.full_name, c.headline, c.source_file
-       FROM candidate_chunks ch
-       JOIN candidates c ON c.id = ch.candidate_id
-      WHERE ch.model = $1`,
+    `SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = $1`,
     [MODEL_TAG],
   );
-
-  const best = new Map<number, SearchHit>();
-  for (const r of rows) {
+  const sem = new Map<number, { score: number; evidence: string }>();
+  for (const r of chunkRows) {
     const score = cosine(q, Float32Array.from(JSON.parse(r.vector) as number[]));
-    const current = best.get(r.candidate_id);
-    if (!current || score > current.score) {
-      best.set(r.candidate_id, {
-        id: r.candidate_id,
-        full_name: r.full_name,
-        headline: r.headline,
-        source_file: r.source_file,
-        score,
-        evidence: r.text,
-      });
+    const cur = sem.get(r.candidate_id);
+    if (!cur || score > cur.score) {
+      sem.set(r.candidate_id, { score, evidence: r.text });
     }
   }
 
-  const hits = [...best.values()];
-  hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, limit);
+  // --- 2) Léxica: TF-IDF de los términos de la búsqueda por candidato ---
+  const cands = await db.select<
+    {
+      id: number;
+      full_name: string | null;
+      headline: string | null;
+      education: string | null;
+      source_file: string | null;
+      raw_text: string | null;
+    }[]
+  >(
+    `SELECT id, full_name, headline, education, source_file, raw_text
+       FROM candidates`,
+  );
+  const terms = queryTerms(query);
+  const N = Math.max(cands.length, 1);
+
+  // Tokenizamos cada candidato y contamos en cuántos aparece cada término (df).
+  const tokensById = new Map<number, string[]>();
+  const df = new Map<string, number>();
+  for (const c of cands) {
+    const toks = norm(
+      [c.full_name, c.headline, c.education, c.raw_text].filter(Boolean).join(" "),
+    ).split(" ");
+    tokensById.set(c.id, toks);
+    for (const term of terms) {
+      if (toks.includes(term)) df.set(term, (df.get(term) ?? 0) + 1);
+    }
+  }
+
+  const lex = new Map<number, { score: number; matched: string[] }>();
+  for (const c of cands) {
+    const toks = tokensById.get(c.id)!;
+    let score = 0;
+    const matched: string[] = [];
+    for (const term of terms) {
+      const tf = toks.filter((w) => w === term).length;
+      if (tf > 0) {
+        const idf = Math.log(1 + N / (df.get(term) ?? 1));
+        score += (1 + Math.log(tf)) * idf;
+        matched.push(term);
+      }
+    }
+    lex.set(c.id, { score, matched });
+  }
+
+  // --- 3) Fusión RRF: combinamos las dos clasificaciones ---
+  const semRank = rankMap(
+    [...sem.entries()].sort((a, b) => b[1].score - a[1].score).map((e) => e[0]),
+  );
+  const lexRank = rankMap(
+    [...lex.entries()]
+      .filter((e) => e[1].score > 0)
+      .sort((a, b) => b[1].score - a[1].score)
+      .map((e) => e[0]),
+  );
+
+  const K = 60;
+  const big = cands.length + 1;
+  const fused = cands.map((c) => {
+    const rs = semRank.get(c.id) ?? big;
+    const rl = lexRank.get(c.id) ?? big;
+    const fusedScore = 1 / (K + rs) + 1 / (K + rl);
+    return {
+      id: c.id,
+      full_name: c.full_name,
+      headline: c.headline,
+      source_file: c.source_file,
+      score: sem.get(c.id)?.score ?? 0,
+      evidence: sem.get(c.id)?.evidence ?? "",
+      matched: lex.get(c.id)?.matched ?? [],
+      fusedScore,
+    };
+  });
+
+  fused.sort((a, b) => b.fusedScore - a.fusedScore);
+  return fused.slice(0, limit).map(({ fusedScore: _f, ...hit }) => hit);
 }
