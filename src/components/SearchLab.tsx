@@ -1,5 +1,30 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { indexAllCandidates, search, type SearchHit } from "../lib/ai/search";
+
+// Resalta en el texto las palabras de la búsqueda (evidencia visible).
+function highlight(text: string, query: string): ReactNode[] {
+  const terms = Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.replace(/[^\p{L}\p{N}]/gu, ""))
+        .filter((t) => t.length >= 3),
+    ),
+  );
+  if (terms.length === 0) return [text];
+  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`(${escaped.join("|")})`, "gi");
+  return text
+    .split(re)
+    .map((part, i) =>
+      terms.includes(part.toLowerCase()) ? (
+        <mark key={i}>{part}</mark>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    );
+}
 
 // Panel TEMPORAL de búsqueda semántica sobre los candidatos reales.
 // Se integrará en la pantalla "Candidatos" definitiva (con la marca Olaz).
@@ -117,6 +142,18 @@ export function SearchLab() {
                   }}
                 />
               </div>
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: "12.5px",
+                  color: "var(--muted, #6b7280)",
+                  borderLeft: "2px solid #4f46e5",
+                  paddingLeft: "10px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {highlight(h.evidence, query)}
+              </p>
             </li>
           ))}
         </ul>

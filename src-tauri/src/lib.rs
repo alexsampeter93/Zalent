@@ -79,6 +79,23 @@ pub fn run() {
             );
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 4,
+        description: "create_candidate_chunks",
+        sql: "
+            CREATE TABLE candidate_chunks (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id INTEGER NOT NULL,
+                idx          INTEGER NOT NULL,
+                text         TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                vector       TEXT NOT NULL,
+                FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_chunks_candidate ON candidate_chunks(candidate_id);
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
