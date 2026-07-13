@@ -350,6 +350,14 @@ button:focus {
   word-break: break-word;
 }
 
+.batch-errors {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  text-align: left;
+  color: #dc2626;
+  font-size: 0.8rem;
+}
+
 .foot {
   color: #9ca3af;
   font-size: 0.85rem;

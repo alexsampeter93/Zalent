@@ -64,6 +64,15 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  // --- Importación en lote (varios CVs de golpe) ---
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchDone, setBatchDone] = useState(0);
+  const [batchErrors, setBatchErrors] = useState<
+    { name: string; error: string }[]
+  >([]);
+  const [batchKey, setBatchKey] = useState(0);
+
   // --- Candidatos guardados y detalle ---
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -108,6 +117,47 @@ function App() {
     } finally {
       setExtracting(false);
     }
+  }
+
+  // Procesa varios archivos en fila: extrae, detecta lo básico y auto-guarda.
+  async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    setBatchRunning(true);
+    setBatchTotal(files.length);
+    setBatchDone(0);
+    setBatchErrors([]);
+    const errors: { name: string; error: string }[] = [];
+
+    for (const file of files) {
+      try {
+        const text = await extractText(file);
+        const g = guessFields(text);
+        await saveCandidate({
+          full_name: g.full_name,
+          email: g.email,
+          phone: g.phone,
+          location: "",
+          headline: "",
+          years_experience: null,
+          education: "",
+          links: g.links,
+          raw_text: text,
+          source_file: file.name,
+          skills: [],
+          languages: [],
+        });
+      } catch (err) {
+        errors.push({ name: file.name, error: String(err) });
+      }
+      setBatchDone((d) => d + 1);
+    }
+
+    setBatchErrors(errors);
+    setBatchRunning(false);
+    setBatchKey((k) => k + 1);
+    await refreshCandidates();
   }
 
   async function onSave() {
@@ -177,15 +227,52 @@ function App() {
       </header>
 
       <section className="card">
-        <p className="card__title">1 · Importar un CV (PDF o Word)</p>
+        <p className="card__title">1 · Importar un CV y revisarlo (PDF o Word)</p>
         <input
           key={fileKey}
           type="file"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={onFileChange}
         />
-        {extracting && <p className="card__intro">Leyendo el PDF…</p>}
+        {extracting && <p className="card__intro">Leyendo el documento…</p>}
         {extractError && <p className="db-error">Error: {extractError}</p>}
+      </section>
+
+      <section className="card">
+        <p className="card__title">Importar varios a la vez (lote automático)</p>
+        <p className="card__intro">
+          Selecciona varios CVs: se guardan solos con lo que se detecte (nombre,
+          email, teléfono, enlace) y el texto completo. El resto se completa
+          luego.
+        </p>
+        <input
+          key={batchKey}
+          type="file"
+          multiple
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          onChange={onBatchChange}
+          disabled={batchRunning}
+        />
+        {batchRunning && (
+          <p className="card__intro">
+            Procesando {batchDone} / {batchTotal}…
+          </p>
+        )}
+        {!batchRunning && batchTotal > 0 && (
+          <p className="db-ok">
+            ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
+            {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
+          </p>
+        )}
+        {batchErrors.length > 0 && (
+          <ul className="batch-errors">
+            {batchErrors.map((er) => (
+              <li key={er.name}>
+                {er.name}: {er.error}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {extractedText && (
