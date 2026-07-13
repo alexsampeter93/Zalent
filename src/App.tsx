@@ -11,6 +11,8 @@ import {
   type CandidateDetail,
 } from "./lib/candidates";
 import { addNote, listNotes, type Note } from "./lib/notes";
+import { AiProbe } from "./components/AiProbe";
+import { SearchLab } from "./components/SearchLab";
 import "./App.css";
 
 interface CandidateForm {
@@ -303,6 +305,9 @@ function App() {
         <h1 className="brand">Zalent</h1>
         <p className="tagline">Gestor de CVs y talento local-first con IA</p>
       </header>
+
+      <AiProbe />
+      <SearchLab />
 
       <section className="card">
         <p className="card__title">1 · Importar un CV y revisarlo (PDF o Word)</p>

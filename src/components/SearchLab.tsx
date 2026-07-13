@@ -1,0 +1,126 @@
+import { useState } from "react";
+import { indexAllCandidates, search, type SearchHit } from "../lib/ai/search";
+
+// Panel TEMPORAL de búsqueda semántica sobre los candidatos reales.
+// Se integrará en la pantalla "Candidatos" definitiva (con la marca Olaz).
+export function SearchLab() {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [searched, setSearched] = useState(false);
+
+  async function onSearch() {
+    if (query.trim() === "") return;
+    setBusy(true);
+    setHits([]);
+    try {
+      // 1) Asegurar que todos los candidatos tienen su vector calculado.
+      setStatus("Preparando (indexando CVs nuevos)…");
+      await indexAllCandidates((done, total) => {
+        if (total > 0) setStatus(`Indexando candidatos: ${done} / ${total}…`);
+      });
+      // 2) Buscar por significado.
+      setStatus("Buscando por significado…");
+      const results = await search(query.trim());
+      setHits(results);
+      setSearched(true);
+      setStatus(
+        results.length === 0
+          ? "No hay candidatos indexados todavía. Importa algún CV."
+          : "",
+      );
+    } catch (e) {
+      setStatus("Error: " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <p className="card__title">🔍 Buscar candidatos (semántica)</p>
+      <p className="card__intro">
+        Describe lo que buscas en lenguaje natural. Ordena tus candidatos por
+        significado, no por palabra exacta.
+      </p>
+      <form
+        className="row"
+        style={{ gap: "0.5rem" }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSearch();
+        }}
+      >
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="p.ej. persona con experiencia en almacén y pedidos online"
+          style={{ flex: 1 }}
+        />
+        <button type="submit" disabled={busy}>
+          {busy ? "…" : "Buscar"}
+        </button>
+      </form>
+
+      {status && (
+        <p className="card__intro" style={{ marginTop: "0.75rem" }}>
+          {status}
+        </p>
+      )}
+
+      {searched && hits.length > 0 && (
+        <ul className="candidate-list">
+          {hits.map((h) => (
+            <li key={h.id} className="note-item">
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "1rem",
+                }}
+              >
+                <div>
+                  <div className="candidate-name">
+                    {h.full_name || "(sin nombre)"}
+                  </div>
+                  <div className="candidate-meta">
+                    {h.headline || h.source_file || "—"}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontFamily: "var(--mono, monospace)",
+                    color: "#059669",
+                    fontWeight: 700,
+                  }}
+                >
+                  {(h.score * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div
+                className="meter"
+                style={{
+                  height: 4,
+                  background: "#e5e7eb",
+                  borderRadius: 3,
+                  marginTop: 6,
+                }}
+              >
+                <i
+                  style={{
+                    display: "block",
+                    height: "100%",
+                    width: `${Math.max(0, h.score * 100)}%`,
+                    background: "#4f46e5",
+                    borderRadius: 3,
+                  }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

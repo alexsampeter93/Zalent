@@ -35,3 +35,6 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.db
+
+# Referencias de diseño (capturas + paquete de mascota) — pesan mucho, son docs
+assets/references/

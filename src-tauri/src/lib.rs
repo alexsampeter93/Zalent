@@ -65,6 +65,20 @@ pub fn run() {
             CREATE INDEX idx_notes_candidate ON notes(candidate_id);
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 3,
+        description: "create_candidate_vectors",
+        sql: "
+            CREATE TABLE candidate_vectors (
+                candidate_id INTEGER PRIMARY KEY,
+                model        TEXT NOT NULL,
+                vector       TEXT NOT NULL,
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+            );
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
