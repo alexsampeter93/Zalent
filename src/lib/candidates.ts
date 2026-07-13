@@ -22,6 +22,7 @@ export interface CandidateRow {
   id: number;
   full_name: string | null;
   email: string | null;
+  headline: string | null;
   source_file: string | null;
   created_at: string;
 }
@@ -87,7 +88,7 @@ export async function deleteCandidate(id: number): Promise<void> {
 export async function listCandidates(): Promise<CandidateRow[]> {
   const db = await getDb();
   return db.select<CandidateRow[]>(
-    "SELECT id, full_name, email, source_file, created_at FROM candidates ORDER BY id DESC",
+    "SELECT id, full_name, email, headline, source_file, created_at FROM candidates ORDER BY id DESC",
   );
 }
 

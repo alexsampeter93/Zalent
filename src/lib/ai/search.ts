@@ -75,11 +75,13 @@ export async function indexAllCandidates(
 export interface SearchHit {
   id: number;
   full_name: string | null;
+  email: string | null;
   headline: string | null;
   source_file: string | null;
-  score: number; // similitud SEMÁNTICA (para mostrar como "encaje")
-  evidence: string; // el fragmento del CV que mejor encajó
+  score: number; // encaje combinado 0..1 (significado + coincidencia exacta)
+  evidence: string; // el fragmento del CV que respalda el encaje
   matched: string[]; // términos de la búsqueda que coinciden LITERALMENTE
+  why: string; // razones estructuradas del encaje (no LLM)
 }
 
 // Palabras vacías: muy comunes, aportan poco a la coincidencia léxica.
@@ -109,110 +111,111 @@ function queryTerms(query: string): string[] {
   );
 }
 
-// Dado un orden de ids, devuelve id -> posición (1 = el mejor).
-function rankMap(orderedIds: number[]): Map<number, number> {
-  const m = new Map<number, number>();
-  orderedIds.forEach((id, i) => m.set(id, i + 1));
-  return m;
-}
+// Umbral: por debajo de este coseno, dos textos solo comparten el "ruido de
+// fondo" (ser CVs en español). Lo usamos para calibrar el % de encaje.
+const SEM_FLOOR = 0.3;
+const SEM_TOP = 0.75;
 
-// Búsqueda HÍBRIDA: fusiona la señal semántica (significado) con la léxica
-// (coincidencia exacta de palabras, TF-IDF) usando Reciprocal Rank Fusion.
+// Búsqueda HÍBRIDA. El % de "encaje" combina, calibrado a 0..100:
+//  - Semántica: coseno del mejor fragmento, quitándole el suelo de ruido.
+//  - Léxica: fracción de términos de la búsqueda que aparecen LITERALMENTE.
+// Se combinan con un "OR suave": si cualquiera es alta, el encaje es alto.
+// Así "leroy" (aparece tal cual) puntúa alto aunque su significado sea pobre,
+// y "profesor" (ni significado ni literal) puntúa bajo.
 export async function search(query: string, limit = 20): Promise<SearchHit[]> {
   const db = await getDb();
   const q = await embed(query);
 
-  // --- 1) Semántica: mejor fragmento por candidato (score + evidencia) ---
+  // Todos los fragmentos con su parecido semántico, agrupados por candidato.
   const chunkRows = await db.select<
     { candidate_id: number; text: string; vector: string }[]
   >(
     `SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = $1`,
     [MODEL_TAG],
   );
-  const sem = new Map<number, { score: number; evidence: string }>();
+  interface Chunk {
+    text: string;
+    ntext: string;
+    cos: number;
+  }
+  const byCand = new Map<number, Chunk[]>();
   for (const r of chunkRows) {
-    const score = cosine(q, Float32Array.from(JSON.parse(r.vector) as number[]));
-    const cur = sem.get(r.candidate_id);
-    if (!cur || score > cur.score) {
-      sem.set(r.candidate_id, { score, evidence: r.text });
-    }
+    const cos = cosine(q, Float32Array.from(JSON.parse(r.vector) as number[]));
+    const arr = byCand.get(r.candidate_id) ?? [];
+    arr.push({ text: r.text, ntext: norm(r.text), cos });
+    byCand.set(r.candidate_id, arr);
   }
 
-  // --- 2) Léxica: TF-IDF de los términos de la búsqueda por candidato ---
+  // Datos de cada candidato (para la parte léxica y para mostrar).
   const cands = await db.select<
     {
       id: number;
       full_name: string | null;
+      email: string | null;
       headline: string | null;
       education: string | null;
       source_file: string | null;
       raw_text: string | null;
     }[]
   >(
-    `SELECT id, full_name, headline, education, source_file, raw_text
+    `SELECT id, full_name, email, headline, education, source_file, raw_text
        FROM candidates`,
   );
   const terms = queryTerms(query);
-  const N = Math.max(cands.length, 1);
 
-  // Tokenizamos cada candidato y contamos en cuántos aparece cada término (df).
-  const tokensById = new Map<number, string[]>();
-  const df = new Map<string, number>();
-  for (const c of cands) {
+  const hits: SearchHit[] = cands.map((c) => {
+    const chunks = byCand.get(c.id) ?? [];
+    const semBest = chunks.reduce<Chunk | undefined>(
+      (best, ch) => (!best || ch.cos > best.cos ? ch : best),
+      undefined,
+    );
+    const cos = semBest?.cos ?? 0;
+
+    // Semántica calibrada: SEM_FLOOR -> 0, SEM_TOP -> 1.
+    const calibSem = Math.min(1, Math.max(0, (cos - SEM_FLOOR) / (SEM_TOP - SEM_FLOOR)));
+
+    // Léxica: qué términos de la búsqueda aparecen literalmente.
     const toks = norm(
       [c.full_name, c.headline, c.education, c.raw_text].filter(Boolean).join(" "),
     ).split(" ");
-    tokensById.set(c.id, toks);
-    for (const term of terms) {
-      if (toks.includes(term)) df.set(term, (df.get(term) ?? 0) + 1);
-    }
-  }
+    const matched = terms.filter((t) => toks.includes(t));
+    const lexCoverage = terms.length ? matched.length / terms.length : 0;
 
-  const lex = new Map<number, { score: number; matched: string[] }>();
-  for (const c of cands) {
-    const toks = tokensById.get(c.id)!;
-    let score = 0;
-    const matched: string[] = [];
-    for (const term of terms) {
-      const tf = toks.filter((w) => w === term).length;
-      if (tf > 0) {
-        const idf = Math.log(1 + N / (df.get(term) ?? 1));
-        score += (1 + Math.log(tf)) * idf;
-        matched.push(term);
+    // Mezcla GRADUADA (no binaria): 60% significado + 40% coincidencia exacta.
+    const display = 0.6 * calibSem + 0.4 * lexCoverage;
+
+    // Evidencia con sentido: si hay coincidencia literal, el fragmento que la
+    // contiene (para que el "por qué encaja" cuadre); si no, el más parecido.
+    let evidenceChunk = semBest;
+    if (matched.length > 0) {
+      const withMatch = chunks.filter((ch) => {
+        const words = ch.ntext.split(" ");
+        return matched.some((m) => words.includes(m));
+      });
+      if (withMatch.length > 0) {
+        evidenceChunk = withMatch.reduce((best, ch) => (ch.cos > best.cos ? ch : best));
       }
     }
-    lex.set(c.id, { score, matched });
-  }
 
-  // --- 3) Fusión RRF: combinamos las dos clasificaciones ---
-  const semRank = rankMap(
-    [...sem.entries()].sort((a, b) => b[1].score - a[1].score).map((e) => e[0]),
-  );
-  const lexRank = rankMap(
-    [...lex.entries()]
-      .filter((e) => e[1].score > 0)
-      .sort((a, b) => b[1].score - a[1].score)
-      .map((e) => e[0]),
-  );
+    // Razones estructuradas (sin LLM): qué coincide y por qué.
+    const reasons: string[] = [];
+    if (matched.length > 0) reasons.push(`menciona ${matched.join(", ")}`);
+    if (calibSem >= 0.3) reasons.push("su perfil se parece por significado a lo que buscas");
+    const why = reasons.length > 0 ? "Encaja porque " + reasons.join(", y ") + "." : "";
 
-  const K = 60;
-  const big = cands.length + 1;
-  const fused = cands.map((c) => {
-    const rs = semRank.get(c.id) ?? big;
-    const rl = lexRank.get(c.id) ?? big;
-    const fusedScore = 1 / (K + rs) + 1 / (K + rl);
     return {
       id: c.id,
       full_name: c.full_name,
+      email: c.email,
       headline: c.headline,
       source_file: c.source_file,
-      score: sem.get(c.id)?.score ?? 0,
-      evidence: sem.get(c.id)?.evidence ?? "",
-      matched: lex.get(c.id)?.matched ?? [],
-      fusedScore,
+      score: display,
+      evidence: evidenceChunk?.text ?? "",
+      matched,
+      why,
     };
   });
 
-  fused.sort((a, b) => b.fusedScore - a.fusedScore);
-  return fused.slice(0, limit).map(({ fusedScore: _f, ...hit }) => hit);
+  hits.sort((a, b) => b.score - a.score);
+  return hits.slice(0, limit);
 }
