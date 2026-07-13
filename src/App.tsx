@@ -11,6 +11,7 @@ import {
   type CandidateDetail,
 } from "./lib/candidates";
 import { addNote, listNotes, type Note } from "./lib/notes";
+import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import "./App.css";
@@ -85,6 +86,7 @@ function App() {
 
   // Importación
   const [fileName, setFileName] = useState("");
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractedText, setExtractedText] = useState("");
   const [extractError, setExtractError] = useState("");
@@ -173,6 +175,7 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setCurrentFile(file);
     setExtractedText("");
     setExtractError("");
     setSaveError("");
@@ -180,7 +183,7 @@ function App() {
     try {
       const text = await extractText(file);
       setExtractedText(text);
-      setForm({ ...emptyForm, ...guessFields(text) });
+      setForm({ ...emptyForm, ...guessFields(text, file.name) });
     } catch (err) {
       setExtractError(String(err));
     } finally {
@@ -199,12 +202,18 @@ function App() {
     for (const file of files) {
       try {
         const text = await extractText(file);
-        const g = guessFields(text);
+        const g = guessFields(text, file.name);
+        let filePath: string | null = null;
+        try {
+          filePath = await saveCvFile(file);
+        } catch (err) {
+          console.error("save_cv:", err);
+        }
         await saveCandidate({
           full_name: g.full_name, email: g.email, phone: g.phone,
           location: "", headline: "", years_experience: null, education: "",
           links: g.links, raw_text: text, source_file: file.name,
-          skills: [], languages: [],
+          file_path: filePath, skills: [], languages: [],
         });
       } catch (err) {
         errors.push({ name: file.name, error: String(err) });
@@ -223,17 +232,27 @@ function App() {
     try {
       const raw = form.years_experience.trim().replace(",", ".");
       const years = raw === "" ? null : Number(raw);
+      let filePath: string | null = null;
+      if (currentFile) {
+        try {
+          filePath = await saveCvFile(currentFile);
+        } catch (err) {
+          console.error("save_cv:", err);
+        }
+      }
       await saveCandidate({
         full_name: form.full_name, email: form.email, phone: form.phone,
         location: form.location, headline: form.headline,
         years_experience: years !== null && !Number.isNaN(years) ? years : null,
         education: form.education, links: form.links,
         raw_text: extractedText, source_file: fileName,
+        file_path: filePath,
         skills: splitList(form.skills), languages: splitList(form.languages),
       });
       setForm(emptyForm);
       setExtractedText("");
       setFileName("");
+      setCurrentFile(null);
       setFileKey((k) => k + 1);
       await refreshCandidates();
     } catch (e) {
@@ -557,6 +576,40 @@ function App() {
                         <Info label="Enlaces" value={detail.links} />
                         <Info label="Skills" value={detail.skills.join(", ") || null} />
                         <Info label="Idiomas" value={detail.languages.join(", ") || null} />
+                      </div>
+                    )}
+
+                    {!editing && (
+                      <div className="cv-actions">
+                        {detail.file_path ? (
+                          <button
+                            className="btn-secondary"
+                            onClick={async () => {
+                              try {
+                                await openCvFile(detail.file_path!);
+                              } catch (e) {
+                                console.error("open cv:", e);
+                              }
+                            }}
+                          >
+                            📄 Ver CV original
+                          </button>
+                        ) : (
+                          <span className="cv-actions__none">
+                            (CV importado antes de guardar el archivo original)
+                          </span>
+                        )}
+                        {detail.raw_text && (
+                          <details className="raw-details">
+                            <summary>Ver texto extraído</summary>
+                            <textarea
+                              className="cv-text"
+                              readOnly
+                              value={detail.raw_text}
+                              rows={10}
+                            />
+                          </details>
+                        )}
                       </div>
                     )}
 

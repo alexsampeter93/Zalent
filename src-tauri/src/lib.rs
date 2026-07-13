@@ -1,9 +1,33 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use std::fs;
+use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+// Guarda una copia del CV original en la carpeta de datos de la app (local).
+// Devuelve la ruta absoluta, que guardamos en la ficha del candidato.
+#[tauri::command]
+fn save_cv(app: tauri::AppHandle, file_name: String, data: Vec<u8>) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("cvs");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(&file_name);
+    fs::write(&path, &data).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// Borra el archivo del CV (borrado real, RGPD). No falla si ya no existe.
+#[tauri::command]
+fn delete_cv(path: String) -> Result<(), String> {
+    let _ = fs::remove_file(&path);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -96,6 +120,12 @@ pub fn run() {
             CREATE INDEX idx_chunks_candidate ON candidate_chunks(candidate_id);
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 5,
+        description: "add_candidate_file_path",
+        sql: "ALTER TABLE candidates ADD COLUMN file_path TEXT;",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
@@ -105,7 +135,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, save_cv, delete_cv])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

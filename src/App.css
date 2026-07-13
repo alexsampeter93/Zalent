@@ -133,6 +133,18 @@ button:disabled {
   line-height: 1.45;
   resize: vertical;
 }
+.cv-actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.cv-actions__none {
+  font-size: 0.8rem;
+  color: var(--faint);
+}
+
 .raw-details {
   margin-top: 1rem;
   text-align: left;

@@ -10,13 +10,43 @@ export interface GuessedFields {
   links: string;
 }
 
-export function guessFields(text: string): GuessedFields {
+export function guessFields(text: string, fileName?: string): GuessedFields {
+  // Nombre: primero por el texto (si empieza con "Nombre Apellido"); si no,
+  // por el nombre del archivo (muchos CVs se llaman "CV Nombre Apellido").
+  const full_name = guessName(text) || nameFromFilename(fileName);
   return {
-    full_name: guessName(text),
+    full_name,
     email: matchEmail(text),
     phone: matchPhone(text),
     links: matchLink(text),
   };
+}
+
+function titleCase(s: string): string {
+  return s
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+// Extrae un nombre del NOMBRE DEL ARCHIVO: quita extensión, separadores,
+// números y palabras tipo "CV"/"curriculum", y deja las primeras palabras.
+function nameFromFilename(fileName?: string): string {
+  if (!fileName) return "";
+  const stop = new Set([
+    "cv", "curriculum", "vitae", "resume", "resumen", "final", "def", "actualizado",
+  ]);
+  const cleaned = fileName
+    .replace(/\.[^.]+$/, "") // extensión
+    .replace(/[_\-().]+/g, " ") // separadores → espacio
+    .replace(/\d+/g, " "); // números fuera
+  const words = cleaned
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !stop.has(w.toLowerCase()))
+    .filter((w) => /^[A-Za-zÁÉÍÓÚÑÜáéíóúñü'.-]+$/.test(w))
+    .slice(0, 4);
+  return words.length >= 2 ? titleCase(words.join(" ")) : "";
 }
 
 function matchEmail(text: string): string {

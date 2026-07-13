@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { deleteCvFile } from "./files";
 
 // Datos de una ficha lista para guardar. `skills` e `languages` son listas
 // porque van a sus propias tablas (relación uno-a-muchos con el candidato).
@@ -13,6 +14,7 @@ export interface CandidateInput {
   links: string;
   raw_text: string;
   source_file: string;
+  file_path: string | null;
   skills: string[];
   languages: string[];
 }
@@ -40,8 +42,8 @@ export async function saveCandidate(c: CandidateInput): Promise<number> {
   const res = await db.execute(
     `INSERT INTO candidates
        (full_name, email, phone, location, headline, years_experience,
-        education, links, raw_text, source_file)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        education, links, raw_text, source_file, file_path)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       orNull(c.full_name),
       orNull(c.email),
@@ -53,6 +55,7 @@ export async function saveCandidate(c: CandidateInput): Promise<number> {
       orNull(c.links),
       orNull(c.raw_text),
       orNull(c.source_file),
+      c.file_path,
     ],
   );
 
@@ -78,6 +81,14 @@ export async function saveCandidate(c: CandidateInput): Promise<number> {
 // idiomas). Lo hacemos explícito para no depender de la config de la BD.
 export async function deleteCandidate(id: number): Promise<void> {
   const db = await getDb();
+  // Borrar también el archivo original del CV (borrado real, RGPD).
+  const rows = await db.select<{ file_path: string | null }[]>(
+    "SELECT file_path FROM candidates WHERE id = $1",
+    [id],
+  );
+  const filePath = rows[0]?.file_path;
+  if (filePath) await deleteCvFile(filePath);
+
   await db.execute("DELETE FROM notes WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM skills WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM languages WHERE candidate_id = $1", [id]);
@@ -104,6 +115,8 @@ export interface CandidateDetail {
   education: string | null;
   links: string | null;
   source_file: string | null;
+  file_path: string | null;
+  raw_text: string | null;
   created_at: string;
   skills: string[];
   languages: string[];
@@ -112,7 +125,7 @@ export interface CandidateDetail {
 export async function getCandidate(id: number): Promise<CandidateDetail | null> {
   const db = await getDb();
   const rows = await db.select<CandidateDetail[]>(
-    "SELECT id, full_name, email, phone, location, headline, years_experience, education, links, source_file, created_at FROM candidates WHERE id = $1",
+    "SELECT id, full_name, email, phone, location, headline, years_experience, education, links, source_file, file_path, raw_text, created_at FROM candidates WHERE id = $1",
     [id],
   );
   if (rows.length === 0) return null;
