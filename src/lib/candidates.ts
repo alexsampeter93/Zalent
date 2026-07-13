@@ -73,6 +73,16 @@ export async function saveCandidate(c: CandidateInput): Promise<number> {
   return candidateId;
 }
 
+// Borrado real (RGPD): elimina la ficha y TODO lo asociado (notas, skills,
+// idiomas). Lo hacemos explícito para no depender de la config de la BD.
+export async function deleteCandidate(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM notes WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM skills WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM languages WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidates WHERE id = $1", [id]);
+}
+
 // Lista los candidatos guardados, del más reciente al más antiguo.
 export async function listCandidates(): Promise<CandidateRow[]> {
   const db = await getDb();

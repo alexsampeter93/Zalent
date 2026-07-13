@@ -207,6 +207,45 @@ button:disabled {
   background: #eef2ff;
 }
 
+.detail-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.confirm-delete {
+  margin: 0.5rem 0 1rem;
+  padding: 1rem;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.confirm-delete__text {
+  margin: 0 0 0.75rem;
+  color: #991b1b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .confirm-delete {
+    background: #2a1414;
+    border-color: #7f1d1d;
+  }
+  .confirm-delete__text {
+    color: #fca5a5;
+  }
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

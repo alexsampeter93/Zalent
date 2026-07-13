@@ -6,6 +6,7 @@ import {
   listCandidates,
   getCandidate,
   updateCandidate,
+  deleteCandidate,
   type CandidateRow,
   type CandidateDetail,
 } from "./lib/candidates";
@@ -83,6 +84,10 @@ function App() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<CandidateForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // --- Borrado ---
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // --- Notas del candidato seleccionado ---
   const [notes, setNotes] = useState<Note[]>([]);
@@ -204,6 +209,7 @@ function App() {
     setSelectedId(id);
     setNewNote("");
     setEditing(false);
+    setConfirmingDelete(false);
     try {
       setDetail(await getCandidate(id));
       setNotes(await listNotes(id));
@@ -258,6 +264,22 @@ function App() {
       console.error(e);
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  async function onDelete() {
+    if (selectedId == null) return;
+    setDeleting(true);
+    try {
+      await deleteCandidate(selectedId);
+      setConfirmingDelete(false);
+      setSelectedId(null);
+      setDetail(null);
+      await refreshCandidates();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -387,12 +409,42 @@ function App() {
         <section className="card">
           <div className="detail-head">
             <p className="card__title">{detail.full_name || "(sin nombre)"}</p>
-            {!editing && (
-              <button className="btn-secondary" onClick={startEdit}>
-                Editar
-              </button>
+            {!editing && !confirmingDelete && (
+              <div className="detail-actions">
+                <button className="btn-secondary" onClick={startEdit}>
+                  Editar
+                </button>
+                <button
+                  className="btn-danger"
+                  onClick={() => setConfirmingDelete(true)}
+                >
+                  Borrar
+                </button>
+              </div>
             )}
           </div>
+
+          {confirmingDelete && (
+            <div className="confirm-delete">
+              <p className="confirm-delete__text">
+                ¿Borrar a <strong>{detail.full_name || "(sin nombre)"}</strong>{" "}
+                definitivamente? Se eliminarán su ficha, skills, idiomas y notas.
+                Esta acción no se puede deshacer.
+              </p>
+              <div className="actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={deleting}
+                >
+                  Cancelar
+                </button>
+                <button className="btn-danger" onClick={onDelete} disabled={deleting}>
+                  {deleting ? "Borrando…" : "Sí, borrar"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {editing ? (
             <>
