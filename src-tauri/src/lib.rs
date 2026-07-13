@@ -126,6 +126,12 @@ pub fn run() {
         description: "add_candidate_file_path",
         sql: "ALTER TABLE candidates ADD COLUMN file_path TEXT;",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 6,
+        description: "add_candidate_status",
+        sql: "ALTER TABLE candidates ADD COLUMN status TEXT NOT NULL DEFAULT 'nuevo';",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

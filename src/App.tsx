@@ -6,7 +6,9 @@ import {
   listCandidates,
   getCandidate,
   updateCandidate,
+  updateCandidateStatus,
   deleteCandidate,
+  STATUSES,
   type CandidateRow,
   type CandidateDetail,
 } from "./lib/candidates";
@@ -15,6 +17,7 @@ import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import { Matching } from "./screens/Matching";
+import { Pipeline } from "./screens/Pipeline";
 import "./App.css";
 
 interface CandidateForm {
@@ -82,6 +85,10 @@ interface Row {
   match?: number;
 }
 
+function statusLabel(key: string): string {
+  return STATUSES.find((s) => s.key === key)?.label ?? "Nuevo";
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>("candidatos");
 
@@ -124,6 +131,12 @@ function App() {
   useEffect(() => {
     refreshCandidates();
   }, []);
+
+  // Al volver a Candidatos, recargar por si cambió algo en otra pantalla
+  // (p.ej. mover estados en el Pipeline).
+  useEffect(() => {
+    if (screen === "candidatos") refreshCandidates();
+  }, [screen]);
 
   async function refreshCandidates() {
     try {
@@ -338,6 +351,17 @@ function App() {
     }
   }
 
+  async function onStatusChange(status: string) {
+    if (selectedId == null) return;
+    try {
+      await updateCandidateStatus(selectedId, status);
+      setDetail(await getCandidate(selectedId));
+      await refreshCandidates();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   async function onAddNote() {
     if (selectedId == null || newNote.trim() === "") return;
     setSavingNote(true);
@@ -365,6 +389,7 @@ function App() {
       }));
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
+  const statusById = new Map(candidates.map((c) => [c.id, c.status]));
   const relevantCount = searchMode
     ? results.filter((r) => r.score >= RELEVANT_FLOOR).length
     : 0;
@@ -442,6 +467,7 @@ function App() {
                         <th>Candidato</th>
                         <th>Puesto</th>
                         {searchMode && <th className="col-match">Encaje</th>}
+                        <th>Estado</th>
                         <th>Fuente</th>
                       </tr>
                     </thead>
@@ -465,6 +491,11 @@ function App() {
                               {r.match != null ? <MatchTag score={r.match} /> : "—"}
                             </td>
                           )}
+                          <td>
+                            <span className={"badge st-" + (statusById.get(r.id) ?? "nuevo")}>
+                              {statusLabel(statusById.get(r.id) ?? "nuevo")}
+                            </span>
+                          </td>
                           <td className="cell-muted">{r.source_file || "—"}</td>
                         </tr>
                       ))}
@@ -517,6 +548,23 @@ function App() {
                         </div>
                       )}
                     </div>
+
+                    {!editing && (
+                      <div className="status-picker">
+                        {STATUSES.map((s) => (
+                          <button
+                            key={s.key}
+                            className={
+                              "status-opt st-" + s.key +
+                              (detail.status === s.key ? " is-current" : "")
+                            }
+                            onClick={() => onStatusChange(s.key)}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {selectedHit && selectedHit.score >= RELEVANT_FLOOR && !editing &&
                       (selectedHit.why || selectedHit.evidence) && (
@@ -721,7 +769,7 @@ function App() {
       )}
 
       {screen === "vacantes" && <Matching />}
-      {screen === "pipeline" && <ComingSoon title="Pipeline" />}
+      {screen === "pipeline" && <Pipeline />}
       {screen === "panel" && <ComingSoon title="Panel" />}
       {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}
     </AppShell>

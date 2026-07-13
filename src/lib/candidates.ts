@@ -26,6 +26,7 @@ export interface CandidateRow {
   email: string | null;
   headline: string | null;
   source_file: string | null;
+  status: string;
   created_at: string;
 }
 
@@ -95,11 +96,28 @@ export async function deleteCandidate(id: number): Promise<void> {
   await db.execute("DELETE FROM candidates WHERE id = $1", [id]);
 }
 
+// Estados posibles del candidato en el proceso de selección.
+export const STATUSES = [
+  { key: "nuevo", label: "Nuevo" },
+  { key: "entrevista", label: "Entrevista" },
+  { key: "oferta", label: "Oferta enviada" },
+  { key: "descartado", label: "Descartado" },
+] as const;
+
+// Cambia el estado de un candidato (para el pipeline).
+export async function updateCandidateStatus(id: number, status: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE candidates SET status = $1, updated_at = datetime('now') WHERE id = $2",
+    [status, id],
+  );
+}
+
 // Lista los candidatos guardados, del más reciente al más antiguo.
 export async function listCandidates(): Promise<CandidateRow[]> {
   const db = await getDb();
   return db.select<CandidateRow[]>(
-    "SELECT id, full_name, email, headline, source_file, created_at FROM candidates ORDER BY id DESC",
+    "SELECT id, full_name, email, headline, source_file, status, created_at FROM candidates ORDER BY id DESC",
   );
 }
 
@@ -117,6 +135,7 @@ export interface CandidateDetail {
   source_file: string | null;
   file_path: string | null;
   raw_text: string | null;
+  status: string;
   created_at: string;
   skills: string[];
   languages: string[];
@@ -125,7 +144,7 @@ export interface CandidateDetail {
 export async function getCandidate(id: number): Promise<CandidateDetail | null> {
   const db = await getDb();
   const rows = await db.select<CandidateDetail[]>(
-    "SELECT id, full_name, email, phone, location, headline, years_experience, education, links, source_file, file_path, raw_text, created_at FROM candidates WHERE id = $1",
+    "SELECT id, full_name, email, phone, location, headline, years_experience, education, links, source_file, file_path, raw_text, status, created_at FROM candidates WHERE id = $1",
     [id],
   );
   if (rows.length === 0) return null;
