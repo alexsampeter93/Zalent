@@ -44,7 +44,7 @@
 
 .card {
   width: 100%;
-  max-width: 480px;
+  max-width: 620px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
@@ -52,9 +52,238 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
 }
 
+.cv-text {
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #fafafa;
+  color: #111827;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cv-text {
+    background: #1a1a1a;
+    color: #e5e7eb;
+    border-color: #3f3f46;
+  }
+}
+
+.card__title {
+  margin: 0 0 0.75rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
 .card__intro {
   margin-top: 0;
   color: #374151;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.raw-details {
+  margin-top: 1rem;
+  text-align: left;
+}
+
+.raw-details summary {
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.candidate-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+}
+
+.candidate-item {
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.candidate-item:last-child {
+  border-bottom: none;
+}
+
+.candidate-name {
+  font-weight: 600;
+}
+
+.candidate-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+/* La lista de candidatos: cada item es un botón clicable */
+.candidate-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 0.5rem;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.candidate-item:hover {
+  background: #f3f4f6;
+}
+
+.candidate-item.is-selected {
+  background: #eef2ff;
+  outline: 2px solid #6366f1;
+}
+
+/* Detalle del candidato */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  text-align: left;
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.info__value {
+  word-break: break-word;
+}
+
+.notes-title {
+  margin-top: 1.5rem;
+}
+
+.note-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.note-add textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  padding: 0.6rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.note-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  text-align: left;
+}
+
+.note-item {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.note-item:last-child {
+  border-bottom: none;
+}
+
+.note-date {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 0.2rem;
+}
+
+.note-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .form-grid,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .field__label,
+  .candidate-meta,
+  .raw-details summary,
+  .note-date {
+    color: #9ca3af;
+  }
+
+  .candidate-item:hover {
+    background: #2a2a2a;
+  }
+
+  .candidate-item.is-selected {
+    background: #26263a;
+  }
+
+  .note-item {
+    border-color: #333;
+  }
+
+  .note-add textarea {
+    background: #1a1a1a;
+    color: #e5e7eb;
+    border-color: #3f3f46;
+  }
 }
 
 .row {

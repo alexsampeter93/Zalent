@@ -50,6 +50,21 @@ pub fn run() {
             CREATE INDEX idx_languages_candidate ON languages(candidate_id);
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 2,
+        description: "create_notes",
+        sql: "
+            CREATE TABLE notes (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id INTEGER NOT NULL,
+                body         TEXT NOT NULL,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_notes_candidate ON notes(candidate_id);
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

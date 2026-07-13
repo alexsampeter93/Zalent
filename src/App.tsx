@@ -1,83 +1,348 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getDb } from "./lib/db";
+import { extractPdfText } from "./lib/pdf";
+import { guessFields } from "./lib/parse";
+import {
+  saveCandidate,
+  listCandidates,
+  getCandidate,
+  type CandidateRow,
+  type CandidateDetail,
+} from "./lib/candidates";
+import { addNote, listNotes, type Note } from "./lib/notes";
 import "./App.css";
 
+interface CandidateForm {
+  full_name: string;
+  email: string;
+  phone: string;
+  location: string;
+  headline: string;
+  years_experience: string;
+  education: string;
+  links: string;
+  skills: string;
+  languages: string;
+}
+
+const emptyForm: CandidateForm = {
+  full_name: "",
+  email: "",
+  phone: "",
+  location: "",
+  headline: "",
+  years_experience: "",
+  education: "",
+  links: "",
+  skills: "",
+  languages: "",
+};
+
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// La BD guarda la fecha en UTC ("2026-07-13 10:48:06"). La mostramos en la
+// hora local del usuario.
+function formatDateTime(sqlUtc: string): string {
+  const d = new Date(sqlUtc.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? sqlUtc : d.toLocaleString();
+}
+
 function App() {
-  // Estado local: el texto que devuelve el "cerebro" nativo (Rust).
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  // --- Importación / extracción ---
+  const [fileName, setFileName] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractedText, setExtractedText] = useState("");
+  const [extractError, setExtractError] = useState("");
+  const [fileKey, setFileKey] = useState(0);
 
-  // Estado de la base de datos: qué tablas existen (o el error si falla).
-  const [tables, setTables] = useState<string[]>([]);
-  const [dbError, setDbError] = useState<string>("");
+  // --- Formulario de la ficha ---
+  const [form, setForm] = useState<CandidateForm>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  // Al abrir la app: cargar la BD (esto aplica las migraciones = crea las
-  // tablas la primera vez) y listar las tablas como prueba de que funciona.
+  // --- Candidatos guardados y detalle ---
+  const [candidates, setCandidates] = useState<CandidateRow[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<CandidateDetail | null>(null);
+
+  // --- Notas del candidato seleccionado ---
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [newNote, setNewNote] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
   useEffect(() => {
-    getDb()
-      .then((db) =>
-        db.select<{ name: string }[]>(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' ORDER BY name",
-        ),
-      )
-      .then((rows) => setTables(rows.map((r) => r.name)))
-      .catch((e) => setDbError(String(e)));
+    refreshCandidates();
   }, []);
 
-  // Llama a la función `greet` definida en Rust (src-tauri/src/lib.rs)
-  // y guarda su respuesta. Es la prueba de que React (la cara) puede
-  // hablar con Rust (el cerebro nativo).
-  async function greet() {
-    setGreetMsg(await invoke("greet", { name }));
+  async function refreshCandidates() {
+    try {
+      setCandidates(await listCandidates());
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function set<K extends keyof CandidateForm>(key: K, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setExtractedText("");
+    setExtractError("");
+    setSaveError("");
+    setExtracting(true);
+    try {
+      const text = await extractPdfText(file);
+      setExtractedText(text);
+      setForm({ ...emptyForm, ...guessFields(text) });
+    } catch (err) {
+      setExtractError(String(err));
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  async function onSave() {
+    setSaving(true);
+    setSaveError("");
+    try {
+      const raw = form.years_experience.trim().replace(",", ".");
+      const years = raw === "" ? null : Number(raw);
+
+      await saveCandidate({
+        full_name: form.full_name,
+        email: form.email,
+        phone: form.phone,
+        location: form.location,
+        headline: form.headline,
+        years_experience: years !== null && !Number.isNaN(years) ? years : null,
+        education: form.education,
+        links: form.links,
+        raw_text: extractedText,
+        source_file: fileName,
+        skills: splitList(form.skills),
+        languages: splitList(form.languages),
+      });
+
+      setForm(emptyForm);
+      setExtractedText("");
+      setFileName("");
+      setFileKey((k) => k + 1);
+      await refreshCandidates();
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function selectCandidate(id: number) {
+    setSelectedId(id);
+    setNewNote("");
+    try {
+      setDetail(await getCandidate(id));
+      setNotes(await listNotes(id));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function onAddNote() {
+    if (selectedId == null || newNote.trim() === "") return;
+    setSavingNote(true);
+    try {
+      await addNote(selectedId, newNote.trim());
+      setNewNote("");
+      setNotes(await listNotes(selectedId));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   return (
     <main className="container">
       <header className="hero">
         <h1 className="brand">Zalent</h1>
-        <p className="tagline">
-          Gestor de CVs y talento local-first con IA
-        </p>
+        <p className="tagline">Gestor de CVs y talento local-first con IA</p>
       </header>
 
       <section className="card">
-        <p className="card__intro">
-          Prueba del puente <strong>React ↔ Rust</strong>: escribe tu nombre y
-          el motor nativo te saludará.
-        </p>
-        <form
-          className="row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            greet();
-          }}
-        >
-          <input
-            id="greet-input"
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="Escribe tu nombre..."
-          />
-          <button type="submit">Saludar</button>
-        </form>
-        {greetMsg && <p className="greet-msg">{greetMsg}</p>}
+        <p className="card__title">1 · Importar un CV (PDF)</p>
+        <input
+          key={fileKey}
+          type="file"
+          accept="application/pdf"
+          onChange={onFileChange}
+        />
+        {extracting && <p className="card__intro">Leyendo el PDF…</p>}
+        {extractError && <p className="db-error">Error: {extractError}</p>}
       </section>
 
-      <section className="card">
-        <p className="card__intro">Estado de la base de datos local</p>
-        {dbError ? (
-          <p className="db-error">Error: {dbError}</p>
-        ) : tables.length > 0 ? (
-          <p className="db-ok">
-            ✅ Conectada · Tablas: {tables.join(", ")}
+      {extractedText && (
+        <section className="card">
+          <p className="card__title">2 · Revisar la ficha</p>
+          <p className="card__intro">
+            Auto-rellenado desde <strong>{fileName}</strong> (
+            {extractedText.length} caracteres). Revisa y completa antes de
+            guardar.
           </p>
+
+          <div className="form-grid">
+            <Field label="Nombre">
+              <input value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
+            </Field>
+            <Field label="Email">
+              <input value={form.email} onChange={(e) => set("email", e.target.value)} />
+            </Field>
+            <Field label="Teléfono">
+              <input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            </Field>
+            <Field label="Ubicación">
+              <input value={form.location} onChange={(e) => set("location", e.target.value)} />
+            </Field>
+            <Field label="Último puesto / titular">
+              <input value={form.headline} onChange={(e) => set("headline", e.target.value)} />
+            </Field>
+            <Field label="Años de experiencia">
+              <input inputMode="decimal" value={form.years_experience} onChange={(e) => set("years_experience", e.target.value)} />
+            </Field>
+            <Field label="Estudios">
+              <input value={form.education} onChange={(e) => set("education", e.target.value)} />
+            </Field>
+            <Field label="Enlaces (LinkedIn…)">
+              <input value={form.links} onChange={(e) => set("links", e.target.value)} />
+            </Field>
+            <Field label="Skills (separadas por comas)">
+              <input value={form.skills} onChange={(e) => set("skills", e.target.value)} />
+            </Field>
+            <Field label="Idiomas (separados por comas)">
+              <input value={form.languages} onChange={(e) => set("languages", e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="actions">
+            <button onClick={onSave} disabled={saving}>
+              {saving ? "Guardando…" : "Guardar candidato"}
+            </button>
+          </div>
+          {saveError && <p className="db-error">Error: {saveError}</p>}
+
+          <details className="raw-details">
+            <summary>Ver texto extraído del CV</summary>
+            <textarea className="cv-text" readOnly value={extractedText} rows={10} />
+          </details>
+        </section>
+      )}
+
+      <section className="card">
+        <p className="card__title">Candidatos guardados ({candidates.length})</p>
+        {candidates.length === 0 ? (
+          <p className="card__intro">Aún no hay candidatos. Importa un CV.</p>
         ) : (
-          <p className="card__intro">Conectando…</p>
+          <ul className="candidate-list">
+            {candidates.map((c) => (
+              <li key={c.id}>
+                <button
+                  className={
+                    "candidate-item" + (selectedId === c.id ? " is-selected" : "")
+                  }
+                  onClick={() => selectCandidate(c.id)}
+                >
+                  <span className="candidate-name">
+                    {c.full_name || "(sin nombre)"}
+                  </span>
+                  <span className="candidate-meta">
+                    {c.email || "—"} · {c.source_file || "—"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
+      {detail && (
+        <section className="card">
+          <p className="card__title">{detail.full_name || "(sin nombre)"}</p>
+          <div className="detail-grid">
+            <Info label="Email" value={detail.email} />
+            <Info label="Teléfono" value={detail.phone} />
+            <Info label="Ubicación" value={detail.location} />
+            <Info label="Último puesto" value={detail.headline} />
+            <Info
+              label="Años de experiencia"
+              value={detail.years_experience?.toString() ?? null}
+            />
+            <Info label="Estudios" value={detail.education} />
+            <Info label="Enlaces" value={detail.links} />
+            <Info label="Skills" value={detail.skills.join(", ") || null} />
+            <Info label="Idiomas" value={detail.languages.join(", ") || null} />
+          </div>
+
+          <p className="card__title notes-title">Notas ({notes.length})</p>
+          <div className="note-add">
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Escribe una nota sobre este candidato…"
+              rows={3}
+            />
+            <button onClick={onAddNote} disabled={savingNote || newNote.trim() === ""}>
+              {savingNote ? "Añadiendo…" : "Añadir nota"}
+            </button>
+          </div>
+
+          {notes.length === 0 ? (
+            <p className="card__intro">Sin notas todavía.</p>
+          ) : (
+            <ul className="note-list">
+              {notes.map((n) => (
+                <li key={n.id} className="note-item">
+                  <div className="note-date">{formatDateTime(n.created_at)}</div>
+                  <div className="note-body">{n.body}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       <footer className="foot">Fase 1 · Datos + Ingesta</footer>
     </main>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="field">
+      <span className="field__label">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="info">
+      <span className="field__label">{label}</span>
+      <span className="info__value">{value || "—"}</span>
+    </div>
   );
 }
 
