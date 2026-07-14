@@ -84,8 +84,20 @@
   box-sizing: border-box;
 }
 
+html,
+#root {
+  height: 100%;
+}
+
+html {
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;           /* el documento NO scrollea; scrollean los paneles */
+  overscroll-behavior: none;  /* sin rebote/arrastre de la ventana */
   background: var(--cream);
   color: var(--ink);
   font-family: var(--font-sans);

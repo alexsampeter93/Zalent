@@ -1,24 +1,28 @@
 .app {
   height: 100vh;
   display: grid;
-  grid-template-columns: 258px 1fr;
+  grid-template-columns: 258px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
+  background: var(--cream);
 }
 
-/* ---------- Menú lateral (marco fijo, oscuro en ambos temas) ---------- */
+/* ---------- Menú lateral (panel flotante redondeado, oscuro) ---------- */
 .rail {
   background: var(--rail);
   color: var(--rail-ink);
   display: flex;
   flex-direction: column;
-  padding: 16px 16px 20px;
+  padding: 22px 16px 18px;
   gap: 4px;
+  margin: 12px 0 12px 12px;
+  border-radius: 18px;
 }
 
 /* --- Olaz con efecto bat-signal (haz + glow) --- */
 .rail__hero {
   position: relative;
-  height: 172px;
+  height: 150px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -27,11 +31,11 @@
 .coco-beam {
   position: absolute;
   z-index: 0;
-  bottom: 44px;
+  bottom: 26px;
   left: 50%;
   transform: translateX(-50%);
-  width: 224px;
-  height: 210px;
+  width: 200px;
+  height: 150px;
   background: linear-gradient(
     180deg,
     rgba(240, 201, 135, 0.5) 0%,
@@ -62,9 +66,9 @@
 .coco-logo {
   position: relative;
   z-index: 2;
-  width: 116px;
+  width: 106px;
   height: auto;
-  filter: drop-shadow(0 0 22px rgba(255, 214, 140, 0.55));
+  filter: drop-shadow(0 0 20px rgba(255, 214, 140, 0.55));
 }
 @keyframes beam-pulse {
   0%, 100% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
@@ -199,19 +203,52 @@
 
 /* ---------- Zona de contenido (scroll interno) ---------- */
 .content {
-  overflow-y: auto;
-  padding: 28px 32px 60px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;           /* nunca scrollea: sujeta a sus hijos */
+  padding: 26px 32px;
   background: var(--cream);
 }
 .screen {
+  width: 100%;
   max-width: 780px;
   margin: 0 auto;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow-y: auto;           /* pantallas de documento: scroll interno */
+  overflow-x: hidden;
+  overscroll-behavior: none;
 }
 .screen__head {
   margin-bottom: 2px;
+}
+
+/* Pantalla que llena el alto y scrollea por dentro (cabecera fija). */
+.screen--fill {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.screen--fill .screen__head {
+  flex: none;
+}
+.screen-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-right: 4px;
+}
+/* Los hijos no se encogen: deben desbordar para que aparezca el scroll. */
+.screen-scroll > * {
+  flex-shrink: 0;
 }
 .screen__title {
   font-family: var(--font-serif);

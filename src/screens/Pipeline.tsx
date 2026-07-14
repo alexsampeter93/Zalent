@@ -48,7 +48,7 @@ export function Pipeline() {
   }
 
   return (
-    <div className="screen screen--wide">
+    <div className="screen screen--wide screen--fill">
       <div className="screen__head">
         <h1 className="screen__title">Pipeline</h1>
         <p className="screen__sub">

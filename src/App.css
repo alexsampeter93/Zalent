@@ -708,16 +708,31 @@ mark {
   display: flex;
   gap: 12px;
   overflow-x: auto;
+  overscroll-behavior: none;
   padding-bottom: 8px;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .kanban__col {
   flex: 1;
   min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px;
+}
+.kanban__head {
+  flex: none;
+}
+.kanban__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
 }
 .kanban__head {
   display: flex;

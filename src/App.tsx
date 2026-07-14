@@ -397,7 +397,7 @@ function App() {
   return (
     <AppShell active={screen} onNavigate={setScreen}>
       {screen === "candidatos" && (
-        <div className="screen screen--wide">
+        <div className="screen screen--wide screen--fill">
           <div className="screen__head">
             <h1 className="screen__title">Candidatos</h1>
             <p className="screen__sub">
@@ -421,6 +421,33 @@ function App() {
               {searching ? "…" : "Buscar"}
             </button>
           </form>
+          {!searching && selectedId == null && rows.length > 0 && (
+            searchMode ? (
+              <div className="results-head">
+                <img
+                  src={`/olaz/${relevantCount > 0 ? "coco-thumbsup-cv" : "coco-thinking-cv"}.png`}
+                  alt="Olaz"
+                />
+                <div>
+                  <strong>
+                    {relevantCount > 0
+                      ? `Olaz encontró ${relevantCount} con relación`
+                      : "Olaz no ve ningún candidato con relación"}
+                  </strong>
+                  <span>
+                    {relevantCount > 0
+                      ? `para «${query}», ordenados por encaje`
+                      : `para «${query}» — quizá no tengas CVs de ese perfil`}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="screen__sub" style={{ margin: 0 }}>
+                {rows.length} candidatos
+              </p>
+            )
+          )}
+          <div className="screen-scroll">
           {searching ? (
             <div className="search-loading">
               <img src="/olaz/coco-magnifier-cv.png" alt="Olaz buscando" />
@@ -437,30 +464,7 @@ function App() {
                 </p>
               </div>
             ) : (
-              <>
-                {searchMode ? (
-                  <div className="results-head">
-                    <img
-                      src={`/olaz/${relevantCount > 0 ? "coco-thumbsup-cv" : "coco-thinking-cv"}.png`}
-                      alt="Olaz"
-                    />
-                    <div>
-                      <strong>
-                        {relevantCount > 0
-                          ? `Olaz encontró ${relevantCount} con relación`
-                          : "Olaz no ve ningún candidato con relación"}
-                      </strong>
-                      <span>
-                        {relevantCount > 0
-                          ? `para «${query}», ordenados por encaje`
-                          : `para «${query}» — quizá no tengas CVs de ese perfil`}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="screen__sub">{rows.length} candidatos</p>
-                )}
-                <div className="table-wrap">
+              <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
@@ -502,7 +506,6 @@ function App() {
                     </tbody>
                   </table>
                 </div>
-              </>
             )
           ) : (
             /* ---------- Vista MAESTRO-DETALLE (3b) ---------- */
@@ -691,6 +694,7 @@ function App() {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
