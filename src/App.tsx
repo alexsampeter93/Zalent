@@ -18,6 +18,7 @@ import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import { Matching } from "./screens/Matching";
 import { Pipeline } from "./screens/Pipeline";
+import { Panel } from "./screens/Panel";
 import "./App.css";
 
 interface CandidateForm {
@@ -107,6 +108,7 @@ function App() {
   const [batchDone, setBatchDone] = useState(0);
   const [batchErrors, setBatchErrors] = useState<{ name: string; error: string }[]>([]);
   const [batchKey, setBatchKey] = useState(0);
+  const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
 
   // Candidatos + búsqueda
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
@@ -185,9 +187,13 @@ function App() {
   }
 
   // ---- Importación ----
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ¿Es un CV admitido? (PDF o Word). Filtra lo que se suelte por arrastre.
+  function isCvFile(f: File): boolean {
+    return /\.(pdf|docx)$/i.test(f.name);
+  }
+
+  // Núcleo de "importar y revisar uno" (lo usan el botón y el arrastre).
+  async function processSingleFile(file: File) {
     setFileName(file.name);
     setCurrentFile(file);
     setExtractedText("");
@@ -205,8 +211,13 @@ function App() {
     }
   }
 
-  async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) await processSingleFile(file);
+  }
+
+  // Núcleo del "importar en lote".
+  async function processBatch(files: File[]) {
     if (files.length === 0) return;
     setBatchRunning(true);
     setBatchTotal(files.length);
@@ -238,6 +249,23 @@ function App() {
     setBatchRunning(false);
     setBatchKey((k) => k + 1);
     await refreshCandidates();
+  }
+
+  async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    await processBatch(Array.from(e.target.files ?? []));
+  }
+
+  // Arrastre de archivos a las zonas de importación.
+  function onDropFiles(
+    e: React.DragEvent,
+    mode: "single" | "batch",
+  ) {
+    e.preventDefault();
+    setDragOver(null);
+    const files = Array.from(e.dataTransfer.files).filter(isCvFile);
+    if (files.length === 0) return;
+    if (mode === "single") processSingleFile(files[0]);
+    else processBatch(files);
   }
 
   async function onSave() {
@@ -702,27 +730,25 @@ function App() {
         <div className="screen">
           <div className="screen__head">
             <h1 className="screen__title">Importar</h1>
-            <p className="screen__sub">Sube CVs (PDF o Word) y se convierten en fichas.</p>
+            <p className="screen__sub">
+              Arrastra tus CVs y se convierten en fichas. Todo local, nada sale a la nube.
+            </p>
           </div>
 
-          <section className="card">
-            <p className="card__title">Importar un CV y revisarlo</p>
-            <input
-              key={fileKey}
-              type="file"
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              onChange={onFileChange}
-            />
-            {extracting && <p className="card__intro">Leyendo el documento…</p>}
-            {extractError && <p className="db-error">Error: {extractError}</p>}
-          </section>
-
-          <section className="card">
-            <p className="card__title">Importar varios a la vez (lote)</p>
-            <p className="card__intro">
-              Se guardan solos con lo que se detecte (nombre, email, teléfono,
-              enlace) y el texto completo. El resto se completa luego.
-            </p>
+          {/* Zona de arrastre principal (lote) */}
+          <label
+            className={
+              "dropzone" +
+              (dragOver === "batch" ? " is-over" : "") +
+              (batchRunning ? " is-busy" : "")
+            }
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!batchRunning) setDragOver("batch");
+            }}
+            onDragLeave={() => setDragOver(null)}
+            onDrop={(e) => !batchRunning && onDropFiles(e, "batch")}
+          >
             <input
               key={batchKey}
               type="file"
@@ -730,24 +756,77 @@ function App() {
               accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={onBatchChange}
               disabled={batchRunning}
+              hidden
             />
-            {batchRunning && (
-              <p className="card__intro">Procesando {batchDone} / {batchTotal}…</p>
-            )}
-            {!batchRunning && batchTotal > 0 && (
-              <p className="db-ok">
-                ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
-                {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
-              </p>
-            )}
-            {batchErrors.length > 0 && (
-              <ul className="batch-errors">
-                {batchErrors.map((er) => (
-                  <li key={er.name}>{er.name}: {er.error}</li>
-                ))}
-              </ul>
-            )}
-          </section>
+            <img
+              src="/olaz/coco-running-cv-papers.png"
+              alt="Olaz"
+              className="dropzone__olaz"
+            />
+            <div className="dropzone__title">Arrastra tus CVs aquí</div>
+            <div className="dropzone__sub">
+              o <span className="dropzone__link">haz clic para elegir</span>
+              <span className="dropzone__dot">·</span> PDF o Word
+              <span className="dropzone__dot">·</span> varios a la vez
+            </div>
+          </label>
+
+          {/* Progreso del lote */}
+          {batchRunning && (
+            <div className="import-progress">
+              <div className="import-progress__bar">
+                <div
+                  className="import-progress__fill"
+                  style={{
+                    width: `${batchTotal ? (batchDone / batchTotal) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+              <div className="import-progress__label">
+                Procesando {batchDone} / {batchTotal}…
+              </div>
+            </div>
+          )}
+          {!batchRunning && batchTotal > 0 && (
+            <p className="db-ok">
+              ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
+              {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
+            </p>
+          )}
+          {batchErrors.length > 0 && (
+            <ul className="batch-errors">
+              {batchErrors.map((er) => (
+                <li key={er.name}>{er.name}: {er.error}</li>
+              ))}
+            </ul>
+          )}
+
+          {/* Opción secundaria: importar uno y revisarlo */}
+          <div className="import-alt">
+            <span className="import-alt__text">
+              ¿Prefieres revisar los datos antes de guardar?
+            </span>
+            <label
+              className={"btn-file" + (dragOver === "single" ? " is-over" : "")}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver("single");
+              }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={(e) => onDropFiles(e, "single")}
+            >
+              <input
+                key={fileKey}
+                type="file"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={onFileChange}
+                hidden
+              />
+              Importar uno y revisar
+            </label>
+          </div>
+          {extracting && <p className="card__intro">Leyendo el documento…</p>}
+          {extractError && <p className="db-error">Error: {extractError}</p>}
 
           {extractedText && (
             <section className="card">
@@ -774,7 +853,7 @@ function App() {
 
       {screen === "vacantes" && <Matching />}
       {screen === "pipeline" && <Pipeline />}
-      {screen === "panel" && <ComingSoon title="Panel" />}
+      {screen === "panel" && <Panel />}
       {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}
     </AppShell>
   );
