@@ -971,6 +971,25 @@ mark {
   color: var(--faint);
 }
 
+.panel-mascot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 6px;
+  color: var(--muted);
+}
+.panel-mascot img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.14));
+}
+.panel-mascot p {
+  margin: 0;
+  font-size: 13px;
+}
+
 @media (max-width: 720px) {
   .kpi-row {
     grid-template-columns: repeat(2, 1fr);
@@ -1031,6 +1050,25 @@ mark {
 .dropzone__dot {
   margin: 0 6px;
   opacity: 0.5;
+}
+
+.folder-btn {
+  align-self: center;
+  background: transparent;
+  border: none;
+  color: var(--gold-deep);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.folder-btn:hover {
+  text-decoration: underline;
+}
+.folder-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
 }
 
 .import-progress {

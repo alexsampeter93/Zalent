@@ -133,6 +133,11 @@ export function Panel() {
                 </p>
               )}
             </div>
+
+            <div className="panel-mascot">
+              <img src="/olaz/coco-thumbsup-cv.png" alt="Olaz" />
+              <p>Todo tu talento, ordenado y en tu equipo.</p>
+            </div>
           </>
         )}
       </div>

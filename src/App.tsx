@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { extractText } from "./lib/extract";
 import { guessFields } from "./lib/parse";
 import {
@@ -109,6 +109,7 @@ function App() {
   const [batchErrors, setBatchErrors] = useState<{ name: string; error: string }[]>([]);
   const [batchKey, setBatchKey] = useState(0);
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
   // Candidatos + búsqueda
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
@@ -252,7 +253,7 @@ function App() {
   }
 
   async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
-    await processBatch(Array.from(e.target.files ?? []));
+    await processBatch(Array.from(e.target.files ?? []).filter(isCvFile));
   }
 
   // Arrastre de archivos a las zonas de importación.
@@ -770,6 +771,24 @@ function App() {
               <span className="dropzone__dot">·</span> varios a la vez
             </div>
           </label>
+
+          {/* Importar una carpeta entera (usa webkitdirectory) */}
+          <button
+            type="button"
+            className="folder-btn"
+            onClick={() => folderRef.current?.click()}
+            disabled={batchRunning}
+          >
+            📁 …o importar una carpeta entera de CVs
+          </button>
+          <input
+            ref={folderRef}
+            type="file"
+            multiple
+            onChange={onBatchChange}
+            hidden
+            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          />
 
           {/* Progreso del lote */}
           {batchRunning && (
