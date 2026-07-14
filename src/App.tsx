@@ -16,7 +16,7 @@ import { addNote, listNotes, type Note } from "./lib/notes";
 import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
-import { Matching } from "./screens/Matching";
+import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
 import "./App.css";
@@ -870,7 +870,7 @@ function App() {
         </div>
       )}
 
-      {screen === "vacantes" && <Matching />}
+      {screen === "vacantes" && <Vacancies />}
       {screen === "pipeline" && <Pipeline />}
       {screen === "panel" && <Panel />}
       {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}

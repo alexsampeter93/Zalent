@@ -132,6 +132,30 @@ pub fn run() {
         description: "add_candidate_status",
         sql: "ALTER TABLE candidates ADD COLUMN status TEXT NOT NULL DEFAULT 'nuevo';",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 7,
+        description: "vacancies_and_membership",
+        sql: "
+            CREATE TABLE vacancies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'abierta',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE candidate_vacancy (
+                candidate_id INTEGER NOT NULL,
+                vacancy_id INTEGER NOT NULL,
+                stage TEXT NOT NULL DEFAULT 'nuevo',
+                added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (candidate_id, vacancy_id)
+            );
+            CREATE INDEX idx_cv_vacancy ON candidate_vacancy(vacancy_id);
+            CREATE INDEX idx_cv_candidate ON candidate_vacancy(candidate_id);
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

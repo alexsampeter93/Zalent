@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { STATUSES } from "../lib/candidates";
 import {
-  listCandidates,
-  updateCandidateStatus,
-  STATUSES,
-  type CandidateRow,
-} from "../lib/candidates";
+  listVacancies,
+  listVacancyCandidates,
+  setCandidateStage,
+  type VacancyWithCount,
+  type VacancyCandidate,
+} from "../lib/vacancies";
 
 function initials(name: string | null): string {
   if (!name) return "?";
@@ -12,36 +14,53 @@ function initials(name: string | null): string {
 }
 
 export function Pipeline() {
-  const [cands, setCands] = useState<CandidateRow[]>([]);
+  const [vacancies, setVacancies] = useState<VacancyWithCount[]>([]);
+  const [vacancyId, setVacancyId] = useState<number | null>(null);
+  const [cands, setCands] = useState<VacancyCandidate[]>([]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
 
-  async function load() {
+  // Cargar la lista de ofertas y elegir la primera por defecto.
+  useEffect(() => {
+    (async () => {
+      try {
+        const vs = await listVacancies();
+        setVacancies(vs);
+        setVacancyId((cur) => cur ?? (vs[0]?.id ?? null));
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
+
+  async function loadCands(vId: number) {
     try {
-      setCands(await listCandidates());
+      setCands(await listVacancyCandidates(vId));
     } catch (e) {
       console.error(e);
     }
   }
   useEffect(() => {
-    load();
-  }, []);
+    if (vacancyId != null) loadCands(vacancyId);
+    else setCands([]);
+  }, [vacancyId]);
 
-  async function move(id: number, status: string) {
-    // Actualización optimista: movemos la tarjeta al instante, luego persistimos.
-    setCands((cs) => cs.map((c) => (c.id === id ? { ...c, status } : c)));
+  async function move(candidateId: number, stage: string) {
+    if (vacancyId == null) return;
+    // Optimista: movemos la tarjeta al instante, luego persistimos.
+    setCands((cs) => cs.map((c) => (c.id === candidateId ? { ...c, stage } : c)));
     try {
-      await updateCandidateStatus(id, status);
+      await setCandidateStage(candidateId, vacancyId, stage);
     } catch (e) {
       console.error(e);
-      load(); // si falla, recargamos el estado real
+      loadCands(vacancyId); // si falla, recargamos el estado real
     }
   }
 
-  function onDrop(status: string) {
+  function onDrop(stage: string) {
     if (draggingId != null) {
       const c = cands.find((x) => x.id === draggingId);
-      if (c && c.status !== status) move(draggingId, status);
+      if (c && c.stage !== stage) move(draggingId, stage);
     }
     setDraggingId(null);
     setOverCol(null);
@@ -50,67 +69,105 @@ export function Pipeline() {
   return (
     <div className="screen screen--wide screen--fill">
       <div className="screen__head">
-        <h1 className="screen__title">Pipeline</h1>
-        <p className="screen__sub">
-          Arrastra las tarjetas entre columnas para mover a tus candidatos.
-        </p>
+        <div className="pipeline-head">
+          <div>
+            <h1 className="screen__title">Pipeline</h1>
+            <p className="screen__sub">
+              Arrastra las tarjetas entre fases. Cada oferta tiene su propio tablero.
+            </p>
+          </div>
+          {vacancies.length > 0 && (
+            <label className="pipeline-picker">
+              <span>Oferta</span>
+              <select
+                value={vacancyId ?? ""}
+                onChange={(e) => setVacancyId(Number(e.target.value))}
+              >
+                {vacancies.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.title} ({v.candidate_count})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
 
-      <div className="kanban">
-        {STATUSES.map((s) => {
-          const col = cands.filter((c) => (c.status || "nuevo") === s.key);
-          return (
-            <div
-              key={s.key}
-              className={"kanban__col" + (overCol === s.key ? " is-over" : "")}
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (overCol !== s.key) setOverCol(s.key);
-              }}
-              onDragLeave={(e) => {
-                // solo limpiar si salimos de la columna, no de un hijo
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setOverCol((c) => (c === s.key ? null : c));
-                }
-              }}
-              onDrop={() => onDrop(s.key)}
-            >
-              <div className={"kanban__head st-" + s.key}>
-                {s.label}
-                <span className="kanban__count">{col.length}</span>
-              </div>
-              <div className="kanban__list">
-                {col.length === 0 && (
-                  <div className="kanban__empty">Suelta aquí</div>
-                )}
-                {col.map((c) => (
-                  <div
-                    key={c.id}
-                    className={
-                      "kanban__card st-border-" + s.key +
-                      (draggingId === c.id ? " is-dragging" : "")
-                    }
-                    draggable
-                    onDragStart={() => setDraggingId(c.id)}
-                    onDragEnd={() => {
-                      setDraggingId(null);
-                      setOverCol(null);
-                    }}
-                  >
-                    <span className="avatar">{initials(c.full_name)}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="candidate-name" style={{ fontSize: 13 }}>
-                        {c.full_name || "(sin nombre)"}
+      {vacancies.length === 0 ? (
+        <div className="screen-scroll">
+          <div className="card">
+            <p className="card__intro">
+              Aún no tienes ofertas. Crea una en <strong>Vacantes</strong> y asígnale
+              candidatos para gestionarlos aquí.
+            </p>
+          </div>
+        </div>
+      ) : cands.length === 0 ? (
+        <div className="screen-scroll">
+          <div className="card">
+            <p className="card__intro">
+              Esta oferta aún no tiene candidatos. Ve a <strong>Vacantes</strong> →
+              abre la oferta → “Puntuar candidatos y añadir”.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="kanban">
+          {STATUSES.map((s) => {
+            const col = cands.filter((c) => (c.stage || "nuevo") === s.key);
+            return (
+              <div
+                key={s.key}
+                className={"kanban__col" + (overCol === s.key ? " is-over" : "")}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (overCol !== s.key) setOverCol(s.key);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setOverCol((c) => (c === s.key ? null : c));
+                  }
+                }}
+                onDrop={() => onDrop(s.key)}
+              >
+                <div className={"kanban__head st-" + s.key}>
+                  {s.label}
+                  <span className="kanban__count">{col.length}</span>
+                </div>
+                <div className="kanban__list">
+                  {col.length === 0 && (
+                    <div className="kanban__empty">Suelta aquí</div>
+                  )}
+                  {col.map((c) => (
+                    <div
+                      key={c.id}
+                      className={
+                        "kanban__card st-border-" + s.key +
+                        (draggingId === c.id ? " is-dragging" : "")
+                      }
+                      draggable
+                      onDragStart={() => setDraggingId(c.id)}
+                      onDragEnd={() => {
+                        setDraggingId(null);
+                        setOverCol(null);
+                      }}
+                    >
+                      <span className="avatar">{initials(c.full_name)}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="candidate-name" style={{ fontSize: 13 }}>
+                          {c.full_name || "(sin nombre)"}
+                        </div>
+                        <div className="candidate-meta">{c.headline || "—"}</div>
                       </div>
-                      <div className="candidate-meta">{c.headline || "—"}</div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

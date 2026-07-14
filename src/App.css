@@ -1128,3 +1128,218 @@ mark {
   border-color: var(--gold-deep);
   background: var(--accent-soft);
 }
+
+/* ===== Vacantes (ofertas) ===== */
+.field > span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.vac-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+.vac-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+.vac-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.vac-card:hover {
+  border-color: var(--gold-deep);
+  transform: translateY(-2px);
+}
+.vac-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.vac-card__title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.vac-card__meta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.vac-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: none;
+}
+.vac-status.is-open {
+  background: #d1fae5;
+  color: #065f46;
+}
+.vac-status.is-closed {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  box-shadow: none;
+  border-color: var(--gold-deep);
+}
+
+.danger-zone {
+  margin-top: 4px;
+}
+.danger-zone__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  background: rgba(200, 60, 60, 0.06);
+  font-size: 13px;
+  color: var(--ink);
+}
+.btn-danger-ghost {
+  background: transparent;
+  color: var(--danger);
+  box-shadow: none;
+  border: 1px solid var(--danger);
+  font-size: 13px;
+}
+.btn-danger-ghost:hover {
+  box-shadow: none;
+  background: rgba(200, 60, 60, 0.08);
+}
+
+/* Listas de candidatos dentro de una oferta */
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+.card__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+.assigned-list,
+.score-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.assigned-row,
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--border);
+}
+.assigned-row:first-child,
+.score-row:first-child {
+  border-top: none;
+}
+.assigned-row__info,
+.score-row__info {
+  flex: 1;
+  min-width: 0;
+}
+.assigned-row__name,
+.score-row__name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.assigned-row__sub,
+.score-row__sub {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.score-row__done {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--good);
+  white-space: nowrap;
+}
+.fit-pill {
+  flex: none;
+  min-width: 44px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 8px;
+}
+.fit-pill.fit-high {
+  background: #d1fae5;
+  color: #065f46;
+}
+.fit-pill.fit-mid {
+  background: #fef3c7;
+  color: #92400e;
+}
+.fit-pill.fit-low {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+/* Cabecera del Pipeline con selector de oferta */
+.pipeline-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pipeline-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pipeline-picker > span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  font-weight: 600;
+}
+.pipeline-picker select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 200px;
+}
