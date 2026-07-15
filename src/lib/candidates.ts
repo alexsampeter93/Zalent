@@ -104,6 +104,60 @@ export async function deleteCandidate(id: number): Promise<void> {
   if (filePath) await deleteCvFile(filePath);
 }
 
+// Anonimiza un candidato (RGPD): quita los datos personales (nombre, email,
+// teléfono, ubicación, enlaces), borra el archivo del CV y el texto/vectores
+// (que contienen su nombre), pero conserva lo agregado (puesto, skills, años,
+// etiquetas, su sitio en el pipeline) por si quieres estadísticas.
+export async function anonymizeCandidate(id: number): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<{ file_path: string | null }[]>(
+    "SELECT file_path FROM candidates WHERE id = $1",
+    [id],
+  );
+  const filePath = rows[0]?.file_path;
+  if (filePath) await deleteCvFile(filePath);
+
+  await db.execute("DELETE FROM candidate_chunks WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidate_vectors WHERE candidate_id = $1", [id]);
+  await db.execute(
+    `UPDATE candidates
+        SET full_name = '[anonimizado]', email = NULL, phone = NULL,
+            location = NULL, links = NULL, raw_text = NULL, file_path = NULL,
+            source_file = '[anonimizado]', updated_at = datetime('now')
+      WHERE id = $1`,
+    [id],
+  );
+}
+
+// Borra TODOS los datos: candidatos, ofertas, notas, etiquetas, votos y los
+// archivos de CV del disco. Derecho al olvido (RGPD) a nivel de toda la base.
+export async function wipeAllData(): Promise<void> {
+  const db = await getDb();
+  // Primero los ficheros del disco.
+  const files = await db.select<{ file_path: string | null }[]>(
+    "SELECT file_path FROM candidates WHERE file_path IS NOT NULL",
+  );
+  for (const f of files) {
+    if (f.file_path) await deleteCvFile(f.file_path);
+  }
+  // Luego todas las tablas.
+  const tables = [
+    "feedback",
+    "candidate_tags",
+    "candidate_vacancy",
+    "candidate_chunks",
+    "candidate_vectors",
+    "notes",
+    "skills",
+    "languages",
+    "candidates",
+    "vacancies",
+  ];
+  for (const t of tables) {
+    await db.execute(`DELETE FROM ${t}`);
+  }
+}
+
 // Limpia filas huérfanas (relacionadas con candidatos que ya no existen).
 // Se ejecuta al arrancar; corrige conteos inflados por borrados antiguos.
 export async function cleanupOrphans(): Promise<void> {

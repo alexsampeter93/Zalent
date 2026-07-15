@@ -9,6 +9,7 @@ import {
   getCandidate,
   updateCandidate,
   deleteCandidate,
+  anonymizeCandidate,
   STATUSES,
   type CandidateRow,
   type CandidateDetail,
@@ -38,7 +39,8 @@ import {
   listAllTags,
   listAllTagAssignments,
 } from "./lib/tags";
-import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
+import { AppShell, type Screen } from "./shell/AppShell";
+import { Settings } from "./screens/Settings";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
@@ -181,6 +183,8 @@ function App() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmingAnon, setConfirmingAnon] = useState(false);
+  const [anonymizing, setAnonymizing] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -458,6 +462,7 @@ function App() {
     setNewNote("");
     setEditing(false);
     setConfirmingDelete(false);
+    setConfirmingAnon(false);
     setTagInput("");
     try {
       setDetail(await getCandidate(id));
@@ -554,6 +559,22 @@ function App() {
       console.error(e);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function onAnonymize() {
+    if (selectedId == null) return;
+    setAnonymizing(true);
+    try {
+      await anonymizeCandidate(selectedId);
+      setDetail(await getCandidate(selectedId));
+      setConfirmingAnon(false);
+      await refreshCandidates();
+      await refreshFilters();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAnonymizing(false);
     }
   }
 
@@ -1084,17 +1105,51 @@ function App() {
                       <p className="card__title">
                         {detail.full_name || "(sin nombre)"}
                       </p>
-                      {!editing && !confirmingDelete && (
+                      {!editing && !confirmingDelete && !confirmingAnon && (
                         <div className="detail-actions">
                           <button className="btn-secondary" onClick={startEdit}>
                             Editar
                           </button>
+                          {detail.full_name !== "[anonimizado]" && (
+                            <button
+                              className="btn-secondary"
+                              onClick={() => setConfirmingAnon(true)}
+                              title="Quitar datos personales (RGPD), conservando lo agregado"
+                            >
+                              Anonimizar
+                            </button>
+                          )}
                           <button className="btn-danger" onClick={() => setConfirmingDelete(true)}>
                             Borrar
                           </button>
                         </div>
                       )}
                     </div>
+
+                    {confirmingAnon && (
+                      <div className="confirm-delete confirm-anon">
+                        <p className="confirm-delete__text">
+                          ¿Anonimizar a{" "}
+                          <strong>{detail.full_name || "(sin nombre)"}</strong>? Se
+                          quitan nombre, email, teléfono, ubicación, enlaces, el
+                          texto y el archivo del CV. Se conservan puesto, skills,
+                          años, etiquetas y su sitio en el pipeline.{" "}
+                          <strong>No se puede deshacer.</strong>
+                        </p>
+                        <div className="actions">
+                          <button
+                            className="btn-secondary"
+                            onClick={() => setConfirmingAnon(false)}
+                            disabled={anonymizing}
+                          >
+                            Cancelar
+                          </button>
+                          <button onClick={onAnonymize} disabled={anonymizing}>
+                            {anonymizing ? "Anonimizando…" : "Sí, anonimizar"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {!editing && (
                       <div className="offers-box">
@@ -1501,7 +1556,14 @@ function App() {
       {screen === "vacantes" && <Vacancies />}
       {screen === "pipeline" && <Pipeline />}
       {screen === "panel" && <Panel />}
-      {screen === "ajustes" && <ComingSoon title="Ajustes" pose="sleeping" />}
+      {screen === "ajustes" && (
+        <Settings
+          onWiped={() => {
+            refreshCandidates();
+            refreshFilters();
+          }}
+        />
+      )}
     </AppShell>
   );
 }
