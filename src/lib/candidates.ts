@@ -121,6 +121,16 @@ export async function listCandidates(): Promise<CandidateRow[]> {
   );
 }
 
+// Datos mínimos de todos los candidatos para clasificarlos en lote.
+export async function listForClassification(): Promise<
+  { id: number; raw_text: string | null; years_experience: number | null }[]
+> {
+  const db = await getDb();
+  return db.select<
+    { id: number; raw_text: string | null; years_experience: number | null }[]
+  >("SELECT id, raw_text, years_experience FROM candidates");
+}
+
 // Ficha completa de un candidato (con sus skills e idiomas) para el detalle.
 export interface CandidateDetail {
   id: number;

@@ -4,6 +4,7 @@ import { guessFields } from "./lib/parse";
 import {
   saveCandidate,
   listCandidates,
+  listForClassification,
   getCandidate,
   updateCandidate,
   updateCandidateStatus,
@@ -12,9 +13,18 @@ import {
   type CandidateRow,
   type CandidateDetail,
 } from "./lib/candidates";
+import { suggestTags } from "./lib/ai/classify";
 import { addNote, listNotes, type Note } from "./lib/notes";
 import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
+import { listVacancies, listAllMemberships } from "./lib/vacancies";
+import {
+  addTag,
+  removeTag,
+  listCandidateTags,
+  listAllTags,
+  listAllTagAssignments,
+} from "./lib/tags";
 import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
@@ -111,6 +121,21 @@ function App() {
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
+  // Filtros de la tabla de Candidatos
+  const [filterVacancy, setFilterVacancy] = useState<number | "all">("all");
+  const [filterMissing, setFilterMissing] = useState<"none" | "email" | "name">("none");
+  const [filterTag, setFilterTag] = useState<string>("all");
+  const [vacancyList, setVacancyList] = useState<{ id: number; title: string }[]>([]);
+  const [membership, setMembership] = useState<Map<number, Set<number>>>(new Map());
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [tagByCandidate, setTagByCandidate] = useState<Map<number, Set<string>>>(new Map());
+
+  // Etiquetas del candidato seleccionado (en su ficha).
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [classifying, setClassifying] = useState(false);
+  const [classifyMsg, setClassifyMsg] = useState("");
+
   // Candidatos + búsqueda
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [query, setQuery] = useState("");
@@ -133,13 +158,70 @@ function App() {
 
   useEffect(() => {
     refreshCandidates();
+    refreshFilters();
   }, []);
 
   // Al volver a Candidatos, recargar por si cambió algo en otra pantalla
-  // (p.ej. mover estados en el Pipeline).
+  // (p.ej. asignar a ofertas o mover fases en el Pipeline).
   useEffect(() => {
-    if (screen === "candidatos") refreshCandidates();
+    if (screen === "candidatos") {
+      refreshCandidates();
+      refreshFilters();
+    }
   }, [screen]);
+
+  // Clasifica automáticamente TODA la base (para los CVs ya importados).
+  async function onAutoClassify() {
+    setClassifying(true);
+    setClassifyMsg("");
+    try {
+      const all = await listForClassification();
+      let tagged = 0;
+      for (const c of all) {
+        const suggested = suggestTags(c.raw_text ?? "", c.years_experience);
+        for (const tag of suggested) await addTag(c.id, tag);
+        if (suggested.length > 0) tagged++;
+      }
+      await refreshFilters();
+      if (selectedId != null) setTags(await listCandidateTags(selectedId));
+      setClassifyMsg(`Clasificados ${tagged} de ${all.length} CVs`);
+    } catch (e) {
+      console.error(e);
+      setClassifyMsg("Error al clasificar");
+    } finally {
+      setClassifying(false);
+    }
+  }
+
+  // Trae las ofertas (para el desplegable) y el mapa candidato→ofertas.
+  async function refreshFilters() {
+    try {
+      const [vs, ms, allT, tagAssigns] = await Promise.all([
+        listVacancies(),
+        listAllMemberships(),
+        listAllTags(),
+        listAllTagAssignments(),
+      ]);
+      setVacancyList(vs.map((v) => ({ id: v.id, title: v.title })));
+      const map = new Map<number, Set<number>>();
+      for (const m of ms) {
+        const set = map.get(m.candidate_id) ?? new Set<number>();
+        set.add(m.vacancy_id);
+        map.set(m.candidate_id, set);
+      }
+      setMembership(map);
+      setAllTags(allT);
+      const tmap = new Map<number, Set<string>>();
+      for (const t of tagAssigns) {
+        const set = tmap.get(t.candidate_id) ?? new Set<string>();
+        set.add(t.tag);
+        tmap.set(t.candidate_id, set);
+      }
+      setTagByCandidate(tmap);
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
   async function refreshCandidates() {
     try {
@@ -235,12 +317,14 @@ function App() {
         } catch (err) {
           console.error("save_cv:", err);
         }
-        await saveCandidate({
+        const newId = await saveCandidate({
           full_name: g.full_name, email: g.email, phone: g.phone,
           location: "", headline: "", years_experience: null, education: "",
           links: g.links, raw_text: text, source_file: file.name,
           file_path: filePath, skills: [], languages: [],
         });
+        // Auto-clasificación por señales (idiomas, carnets, estudios…).
+        for (const tag of suggestTags(text, null)) await addTag(newId, tag);
       } catch (err) {
         errors.push({ name: file.name, error: String(err) });
       }
@@ -250,6 +334,7 @@ function App() {
     setBatchRunning(false);
     setBatchKey((k) => k + 1);
     await refreshCandidates();
+    await refreshFilters();
   }
 
   async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -283,21 +368,27 @@ function App() {
           console.error("save_cv:", err);
         }
       }
-      await saveCandidate({
+      const cleanYears = years !== null && !Number.isNaN(years) ? years : null;
+      const newId = await saveCandidate({
         full_name: form.full_name, email: form.email, phone: form.phone,
         location: form.location, headline: form.headline,
-        years_experience: years !== null && !Number.isNaN(years) ? years : null,
+        years_experience: cleanYears,
         education: form.education, links: form.links,
         raw_text: extractedText, source_file: fileName,
         file_path: filePath,
         skills: splitList(form.skills), languages: splitList(form.languages),
       });
+      // Auto-clasificación por señales.
+      for (const tag of suggestTags(extractedText, cleanYears)) {
+        await addTag(newId, tag);
+      }
       setForm(emptyForm);
       setExtractedText("");
       setFileName("");
       setCurrentFile(null);
       setFileKey((k) => k + 1);
       await refreshCandidates();
+      await refreshFilters();
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -311,9 +402,38 @@ function App() {
     setNewNote("");
     setEditing(false);
     setConfirmingDelete(false);
+    setTagInput("");
     try {
       setDetail(await getCandidate(id));
       setNotes(await listNotes(id));
+      setTags(await listCandidateTags(id));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Añadir/quitar etiquetas del candidato abierto.
+  async function onAddTag(raw: string) {
+    const t = raw.trim().replace(/\s+/g, " ");
+    if (!t || selectedId == null || tags.includes(t)) {
+      setTagInput("");
+      return;
+    }
+    setTags((cur) => [...cur, t]);
+    setTagInput("");
+    try {
+      await addTag(selectedId, t);
+      await refreshFilters();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  async function onRemoveTag(t: string) {
+    if (selectedId == null) return;
+    setTags((cur) => cur.filter((x) => x !== t));
+    try {
+      await removeTag(selectedId, t);
+      await refreshFilters();
     } catch (e) {
       console.error(e);
     }
@@ -416,6 +536,23 @@ function App() {
         id: c.id, full_name: c.full_name, email: c.email,
         headline: c.headline, source_file: c.source_file,
       }));
+  // Aplica los filtros (oferta, datos faltantes, etiqueta) a las filas.
+  const filtersActive =
+    filterVacancy !== "all" || filterMissing !== "none" || filterTag !== "all";
+  const visibleRows = rows.filter((r) => {
+    if (filterVacancy !== "all") {
+      const set = membership.get(r.id);
+      if (!set || !set.has(filterVacancy)) return false;
+    }
+    if (filterTag !== "all") {
+      const set = tagByCandidate.get(r.id);
+      if (!set || !set.has(filterTag)) return false;
+    }
+    if (filterMissing === "email" && r.email && r.email.trim()) return false;
+    if (filterMissing === "name" && r.full_name && r.full_name.trim()) return false;
+    return true;
+  });
+
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
   const statusById = new Map(candidates.map((c) => [c.id, c.status]));
@@ -472,9 +609,75 @@ function App() {
               </div>
             ) : (
               <p className="screen__sub" style={{ margin: 0 }}>
-                {rows.length} candidatos
+                {filtersActive
+                  ? `${visibleRows.length} de ${rows.length} candidatos`
+                  : `${rows.length} candidatos`}
               </p>
             )
+          )}
+          {!searching && selectedId == null && rows.length > 0 && (
+            <div className="filters">
+              <select
+                value={filterVacancy === "all" ? "all" : String(filterVacancy)}
+                onChange={(e) =>
+                  setFilterVacancy(
+                    e.target.value === "all" ? "all" : Number(e.target.value),
+                  )
+                }
+              >
+                <option value="all">Todas las ofertas</option>
+                {vacancyList.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.title}
+                  </option>
+                ))}
+              </select>
+              {allTags.length > 0 && (
+                <select
+                  value={filterTag}
+                  onChange={(e) => setFilterTag(e.target.value)}
+                >
+                  <option value="all">Todas las etiquetas</option>
+                  {allTags.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <select
+                value={filterMissing}
+                onChange={(e) =>
+                  setFilterMissing(e.target.value as "none" | "email" | "name")
+                }
+              >
+                <option value="none">Todos los datos</option>
+                <option value="name">Sin nombre</option>
+                <option value="email">Sin email</option>
+              </select>
+              {filtersActive && (
+                <button
+                  className="btn-sm btn-ghost"
+                  onClick={() => {
+                    setFilterVacancy("all");
+                    setFilterMissing("none");
+                    setFilterTag("all");
+                  }}
+                >
+                  Limpiar filtros
+                </button>
+              )}
+              <div className="filters__spacer" />
+              <button
+                className="btn-sm classify-btn"
+                onClick={onAutoClassify}
+                disabled={classifying}
+                title="Detecta idiomas, carnets, estudios y experiencia de cada CV"
+              >
+                {classifying ? "Clasificando…" : "✨ Clasificar automáticamente"}
+              </button>
+              {classifyMsg && <span className="classify-msg">{classifyMsg}</span>}
+            </div>
           )}
           <div className="screen-scroll">
           {searching ? (
@@ -492,6 +695,10 @@ function App() {
                     : "Aún no hay candidatos. Ve a Importar para añadir CVs."}
                 </p>
               </div>
+            ) : visibleRows.length === 0 ? (
+              <div className="card">
+                <p className="card__intro">Ningún candidato con estos filtros.</p>
+              </div>
             ) : (
               <div className="table-wrap">
                   <table className="table">
@@ -505,7 +712,7 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r) => (
+                      {visibleRows.map((r) => (
                         <tr key={r.id} onClick={() => selectCandidate(r.id)}>
                           <td>
                             <div className="cellname">
@@ -595,6 +802,47 @@ function App() {
                             {s.label}
                           </button>
                         ))}
+                      </div>
+                    )}
+
+                    {!editing && (
+                      <div className="tags-box">
+                        <div className="tags-box__label">Etiquetas</div>
+                        <div className="tags-row">
+                          {tags.map((t) => (
+                            <span key={t} className="tag-chip">
+                              {t}
+                              <button
+                                className="tag-chip__x"
+                                onClick={() => onRemoveTag(t)}
+                                aria-label={`Quitar ${t}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                          {tags.length === 0 && (
+                            <span className="tags-empty">Sin etiquetas todavía</span>
+                          )}
+                        </div>
+                        <input
+                          className="tag-input"
+                          list="tag-suggestions"
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              onAddTag(tagInput);
+                            }
+                          }}
+                          placeholder="Añadir etiqueta (p.ej. carnet C+E) y Enter"
+                        />
+                        <datalist id="tag-suggestions">
+                          {allTags.map((t) => (
+                            <option key={t} value={t} />
+                          ))}
+                        </datalist>
                       </div>
                     )}
 

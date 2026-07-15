@@ -153,6 +153,16 @@ export async function listVacancyCandidates(
   );
 }
 
+// Todas las asignaciones (para construir un mapa candidato→ofertas y filtrar).
+export async function listAllMemberships(): Promise<
+  { candidate_id: number; vacancy_id: number }[]
+> {
+  const db = await getDb();
+  return db.select<{ candidate_id: number; vacancy_id: number }[]>(
+    "SELECT candidate_id, vacancy_id FROM candidate_vacancy",
+  );
+}
+
 // Ofertas a las que pertenece un candidato (para su ficha).
 export async function listCandidateVacancies(
   candidateId: number,

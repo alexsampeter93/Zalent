@@ -156,6 +156,19 @@ pub fn run() {
             CREATE INDEX idx_cv_candidate ON candidate_vacancy(candidate_id);
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 8,
+        description: "candidate_tags",
+        sql: "
+            CREATE TABLE candidate_tags (
+                candidate_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (candidate_id, tag)
+            );
+            CREATE INDEX idx_tags_tag ON candidate_tags(tag);
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
