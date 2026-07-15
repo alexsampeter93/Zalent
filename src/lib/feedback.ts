@@ -30,3 +30,9 @@ export async function listVotes(): Promise<{ candidate_id: number; vote: number 
     "SELECT candidate_id, vote FROM feedback",
   );
 }
+
+// Borra todos los votos (olvidar las preferencias aprendidas).
+export async function clearAllVotes(): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM feedback");
+}

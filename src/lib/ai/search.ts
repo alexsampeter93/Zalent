@@ -73,6 +73,16 @@ export async function indexAllCandidates(
   return pending.length;
 }
 
+// Reconstruye el índice desde cero: borra los fragmentos y reindexa todo.
+// (Mantenimiento: útil si algo se desincroniza.)
+export async function reindexAll(
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  const db = await getDb();
+  await db.execute("DELETE FROM candidate_chunks WHERE model = $1", [MODEL_TAG]);
+  return indexAllCandidates(onProgress);
+}
+
 export interface SearchHit {
   id: number;
   full_name: string | null;

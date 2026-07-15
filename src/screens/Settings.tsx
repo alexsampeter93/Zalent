@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { wipeAllData } from "../lib/candidates";
+import { wipeAllData, listCandidates } from "../lib/candidates";
 import {
   hasMasterPassword,
   setMasterPassword,
@@ -7,11 +7,27 @@ import {
   cryptoSelftest,
   encryptAllCvs,
 } from "../lib/lock";
+import { useThemeMode, type ThemeMode } from "../lib/theme";
+import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
+import { reindexAll } from "../lib/ai/search";
+import { clearAllVotes } from "../lib/feedback";
 
-type Section = "privacidad" | "seguridad" | "datos";
+type Section =
+  | "apariencia"
+  | "privacidad"
+  | "seguridad"
+  | "datos"
+  | "busqueda"
+  | "acerca";
 
 // --- Iconos (SVG, en línea con el estilo del resto de la app) ---
 const ICONS: Record<Section, ReactNode> = {
+  apariencia: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19" />
+    </svg>
+  ),
   privacidad: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3l7 3v6c0 4-3 7-7 8-4-1-7-4-7-8V6l7-3z" />
@@ -30,57 +46,78 @@ const ICONS: Record<Section, ReactNode> = {
       <path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" />
     </svg>
   ),
+  busqueda: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
+  acerca: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
+    </svg>
+  ),
 };
 
 const SECTIONS: { key: Section; title: string; desc: string }[] = [
   { key: "privacidad", title: "Privacidad", desc: "Dónde viven tus datos y qué sale (nada) del equipo." },
   { key: "seguridad", title: "Seguridad", desc: "Contraseña maestra y cifrado de los CVs." },
-  { key: "datos", title: "Datos", desc: "Borrado total de la base (derecho al olvido)." },
+  { key: "busqueda", title: "Búsqueda e IA", desc: "Índice de búsqueda y preferencias aprendidas." },
+  { key: "datos", title: "Datos", desc: "Almacenamiento y borrado total (derecho al olvido)." },
+  { key: "apariencia", title: "Apariencia", desc: "Tema claro, oscuro o el del sistema." },
+  { key: "acerca", title: "Acerca de", desc: "Versión, marca y créditos." },
 ];
 
 export function Settings({ onWiped }: { onWiped: () => void }) {
-  const [section, setSection] = useState<Section | null>(null);
+  const [section, setSection] = useState<Section>("privacidad");
+  const current = SECTIONS.find((s) => s.key === section)!;
 
   return (
-    <div className="screen screen--fill">
+    <div className="screen screen--wide screen--fill">
       <div className="screen__head">
         <h1 className="screen__title">Ajustes</h1>
-        <p className="screen__sub">
-          {section
-            ? SECTIONS.find((s) => s.key === section)?.desc
-            : "Elige una sección para configurarla."}
-        </p>
       </div>
 
-      <div className="screen-scroll">
-        {section === null ? (
-          <div className="settings-list">
-            {SECTIONS.map((s) => (
-              <button
-                key={s.key}
-                className="settings-row"
-                onClick={() => setSection(s.key)}
-              >
-                <span className="settings-row__icon">{ICONS[s.key]}</span>
-                <span className="settings-row__text">
-                  <span className="settings-row__title">{s.title}</span>
-                  <span className="settings-row__desc">{s.desc}</span>
-                </span>
-                <span className="settings-row__chev" aria-hidden="true">›</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <>
-            <button className="backlink" onClick={() => setSection(null)}>
-              ← Volver a Ajustes
+      <div className="settings2">
+        <nav className="settings2__nav">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.key}
+              className={"settings2__item" + (section === s.key ? " active" : "")}
+              onClick={() => setSection(s.key)}
+            >
+              <span className="settings2__icon">{ICONS[s.key]}</span>
+              <span>{s.title}</span>
             </button>
+          ))}
+        </nav>
+
+        <div className="settings2__panel">
+          <div className="settings2__head">
+            <h2>{current.title}</h2>
+            <p>{current.desc}</p>
+          </div>
+          <div className="settings2__content">
             {section === "privacidad" && <PrivacySection />}
             {section === "seguridad" && <SecuritySection />}
+            {section === "busqueda" && <SearchAiSection />}
             {section === "datos" && <DataSection onWiped={onWiped} />}
-          </>
-        )}
+            {section === "apariencia" && <AppearanceSection />}
+            {section === "acerca" && <AboutSection />}
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// Fila etiqueta → valor (estilo preferencias).
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="set-row">
+      <span className="set-row__label">{label}</span>
+      <span className="set-row__value">{value}</span>
     </div>
   );
 }
@@ -89,30 +126,21 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
 function PrivacySection() {
   return (
     <>
-      <section className="card">
-        <p className="card__title">Tus datos, en tu equipo</p>
-        <p className="card__intro">
-          Todos los CVs y sus datos viven <strong>solo en este ordenador</strong>{" "}
-          (una base de datos local y la carpeta de CVs). Zalent{" "}
-          <strong>no envía nada a la nube</strong>, ni a Anthropic ni a ningún
-          servidor.
-        </p>
-      </section>
-      <section className="card">
-        <p className="card__title">La única conexión</p>
-        <p className="card__intro">
-          La primera vez, la app descarga el <strong>modelo de IA</strong> (para
-          buscar por significado). Se descarga <strong>hacia tu equipo</strong>;{" "}
-          <strong>tus CVs no salen</strong>. Después funciona sin internet.
-        </p>
-      </section>
-      <section className="card">
-        <p className="card__title">Borrado real</p>
-        <p className="card__intro">
-          Al borrar un candidato se elimina de verdad: su ficha, sus datos y su
-          archivo del disco. No hay “papelera” oculta.
-        </p>
-      </section>
+      <div className="set-hero">
+        <span className="set-hero__big">100%</span>
+        <div>
+          <div className="set-hero__t">Datos en tu equipo</div>
+          <div className="set-hero__s">
+            Cero llamadas a servidores externos. Nada va a la nube ni a Anthropic.
+          </div>
+        </div>
+      </div>
+      <div className="set-rows">
+        <Row label="Ubicación de los datos" value="Este equipo" />
+        <Row label="Telemetría / analítica" value="Ninguna" />
+        <Row label="Modelo de IA" value="Local (offline)" />
+        <Row label="Borrado de candidatos" value="Real, sin papelera" />
+      </div>
     </>
   );
 }
@@ -270,6 +298,13 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
   const [confirmText, setConfirmText] = useState("");
   const [wiping, setWiping] = useState(false);
   const [done, setDone] = useState(false);
+  const [count, setCount] = useState<number | null>(null);
+  const [size, setSize] = useState<number | null>(null);
+
+  useEffect(() => {
+    listCandidates().then((c) => setCount(c.length)).catch(() => {});
+    dataDirSize().then(setSize).catch(() => {});
+  }, [done]);
 
   async function wipe() {
     setWiping(true);
@@ -287,8 +322,32 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
   }
 
   return (
-    <div className="danger-zone">
-      <p className="card__title">Borrar todos los datos</p>
+    <>
+      <section className="card">
+        <p className="card__title">Almacenamiento</p>
+        <div className="stat-grid">
+          <div className="stat">
+            <span className="stat__n">{count ?? "…"}</span>
+            <span className="stat__l">candidatos</span>
+          </div>
+          <div className="stat">
+            <span className="stat__n">{size != null ? formatBytes(size) : "…"}</span>
+            <span className="stat__l">en disco</span>
+          </div>
+        </div>
+        <p className="card__intro">
+          Todo se guarda en la carpeta de datos de la app, en tu equipo. Ábrela
+          para hacer copias de seguridad.
+        </p>
+        <div className="actions">
+          <button className="btn-secondary" onClick={() => openDataDir()}>
+            Abrir carpeta de datos
+          </button>
+        </div>
+      </section>
+
+      <div className="danger-zone">
+        <p className="card__title">Borrar todos los datos</p>
       {done ? (
         <p className="db-ok">✅ Se han borrado todos los datos.</p>
       ) : !confirmOpen ? (
@@ -330,6 +389,137 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
+  );
+}
+
+// ---------- Apariencia ----------
+function AppearanceSection() {
+  const [mode, setThemeMode] = useThemeMode();
+  const opts: { key: ThemeMode; label: string }[] = [
+    { key: "light", label: "Claro" },
+    { key: "dark", label: "Oscuro" },
+    { key: "system", label: "Sistema" },
+  ];
+  return (
+    <section className="card">
+      <p className="card__title">Tema</p>
+      <p className="card__intro">
+        Elige el aspecto de la app. “Sistema” sigue la preferencia de tu
+        ordenador.
+      </p>
+      <div className="theme-opts">
+        {opts.map((o) => (
+          <button
+            key={o.key}
+            className={"theme-opt" + (mode === o.key ? " is-on" : "")}
+            onClick={() => setThemeMode(o.key)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ---------- Búsqueda e IA ----------
+function SearchAiSection() {
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmForget, setConfirmForget] = useState(false);
+
+  async function reindex() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const n = await reindexAll((d, t) => setMsg(`Reindexando ${d}/${t}…`));
+      setMsg(`✅ Índice reconstruido (${n} candidatos).`);
+    } catch (e) {
+      setMsg("Error: " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function forget() {
+    setBusy(true);
+    setMsg("");
+    try {
+      await clearAllVotes();
+      setConfirmForget(false);
+      setMsg("✅ Preferencias borradas. El ranking vuelve a neutro.");
+    } catch (e) {
+      setMsg("Error.");
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <section className="card">
+        <p className="card__title">Índice de búsqueda</p>
+        <p className="card__intro">
+          Reconstruye los vectores de búsqueda desde cero. Útil si notas
+          resultados raros. Puede tardar un poco.
+        </p>
+        <div className="actions">
+          <button className="btn-secondary" onClick={reindex} disabled={busy}>
+            {busy ? "…" : "Reconstruir índice"}
+          </button>
+        </div>
+      </section>
+
+      <section className="card">
+        <p className="card__title">Preferencias aprendidas</p>
+        <p className="card__intro">
+          Zalent aprende de tus 👍/👎 para reordenar. Puedes borrarlas y empezar
+          de cero.
+        </p>
+        {confirmForget ? (
+          <div className="actions">
+            <button className="btn-danger" onClick={forget} disabled={busy}>
+              Sí, olvidar
+            </button>
+            <button className="btn-ghost" onClick={() => setConfirmForget(false)}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <div className="actions">
+            <button
+              className="btn-secondary"
+              onClick={() => setConfirmForget(true)}
+            >
+              Olvidar mis preferencias
+            </button>
+          </div>
+        )}
+      </section>
+
+      {msg && <p className="card__hint">{msg}</p>}
+    </>
+  );
+}
+
+// ---------- Acerca de ----------
+function AboutSection() {
+  return (
+    <section className="card about">
+      <img
+        src="/olaz/olaz-avatar-zalent.png"
+        alt="Olaz"
+        className="about__olaz"
+      />
+      <p className="about__name">Zalent</p>
+      <p className="about__ver">Versión 0.1.0</p>
+      <p className="card__intro">
+        Gestor de CVs y talento <strong>local-first</strong> con IA. Tus datos,
+        en tu equipo. Con Olaz, el coco con cerebro. 🥥🧠
+      </p>
+    </section>
   );
 }

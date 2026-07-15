@@ -1,22 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import "./shell.css";
-
-type Theme = "light" | "dark";
-
-function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem("zalent-theme");
-    if (saved === "light" || saved === "dark") return saved;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  });
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("zalent-theme", theme);
-  }, [theme]);
-  return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))];
-}
+import { useThemeMode, resolvedTheme } from "../lib/theme";
 
 export type Screen =
   | "candidatos"
@@ -86,7 +70,8 @@ export function AppShell({
   onNavigate: (s: Screen) => void;
   children: ReactNode;
 }) {
-  const [theme, toggleTheme] = useTheme();
+  const [mode, setThemeMode] = useThemeMode();
+  const dark = resolvedTheme(mode) === "dark";
   let lastGroup = "";
   return (
     <div className="app">
@@ -124,13 +109,16 @@ export function AppShell({
         </nav>
 
         <div className="rail__foot">
-          <button className="theme-toggle" onClick={toggleTheme}>
-            {theme === "dark" ? (
+          <button
+            className="theme-toggle"
+            onClick={() => setThemeMode(dark ? "light" : "dark")}
+          >
+            {dark ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" /></svg>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
             )}
-            <span>{theme === "dark" ? "Modo claro" : "Modo oscuro"}</span>
+            <span>{dark ? "Modo claro" : "Modo oscuro"}</span>
           </button>
           <div className="privacy">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>

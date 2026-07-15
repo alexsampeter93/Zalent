@@ -101,6 +101,39 @@ fn delete_cv(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// Ruta de la carpeta de datos (para abrirla / mostrarla).
+#[tauri::command]
+fn data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .to_string())
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = fs::read_dir(path) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                total += dir_size(&p);
+            } else if let Ok(m) = e.metadata() {
+                total += m.len();
+            }
+        }
+    }
+    total
+}
+
+// Tamaño total en disco de la carpeta de datos (bytes).
+#[tauri::command]
+fn data_dir_size(app: tauri::AppHandle) -> Result<u64, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir_size(&dir))
+}
+
 // Devuelve una ruta ABIERTA por el SO: si el archivo está cifrado, lo descifra
 // a una copia temporal y devuelve esa; si no, devuelve la ruta original.
 #[tauri::command]
@@ -481,6 +514,8 @@ pub fn run() {
             save_cv,
             delete_cv,
             read_cv_temp,
+            data_dir,
+            data_dir_size,
             has_master_password,
             set_master_password,
             unlock,
