@@ -29,3 +29,12 @@ export async function deleteNote(id: number): Promise<void> {
   const db = await getDb();
   await db.execute("DELETE FROM notes WHERE id = $1", [id]);
 }
+
+// Ids de candidatos que tienen al menos una nota (para el filtro con/sin notas).
+export async function listCandidatesWithNotes(): Promise<number[]> {
+  const db = await getDb();
+  const rows = await db.select<{ candidate_id: number }[]>(
+    "SELECT DISTINCT candidate_id FROM notes",
+  );
+  return rows.map((r) => r.candidate_id);
+}

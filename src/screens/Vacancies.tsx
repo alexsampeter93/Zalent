@@ -13,6 +13,7 @@ import {
   type VacancyCandidate,
 } from "../lib/vacancies";
 import { matchOffer, deriveRequirements, type MatchResult } from "../lib/ai/match";
+import { EmptyState } from "../components/EmptyState";
 
 function initials(name: string | null): string {
   if (!name) return "?";
@@ -29,12 +30,15 @@ export function Vacancies() {
   const [list, setList] = useState<VacancyWithCount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   async function refresh() {
     try {
       setList(await listVacancies());
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoaded(true);
     }
   }
   useEffect(() => {
@@ -71,42 +75,56 @@ export function Vacancies() {
           />
         ) : (
           <>
-            <div className="vac-toolbar">
-              <button onClick={() => setCreating(true)}>+ Nueva oferta</button>
-            </div>
-
-            {list.length === 0 ? (
-              <div className="card">
-                <p className="card__intro">
-                  Aún no tienes ofertas. Crea la primera con “+ Nueva oferta”.
-                </p>
-              </div>
+            {!loaded ? null : list.length === 0 ? (
+              <EmptyState
+                image="coco-thinking-cv"
+                title="Aún no tienes ofertas"
+                subtitle="Crea tu primera vacante para organizar a los candidatos por puesto, puntuarlos y llevar su pipeline."
+                action={{
+                  label: "+ Crear primera oferta",
+                  onClick: () => setCreating(true),
+                }}
+              />
             ) : (
-              <div className="vac-grid">
-                {list.map((v) => (
-                  <button
-                    key={v.id}
-                    className="vac-card"
-                    onClick={() => setSelectedId(v.id)}
-                  >
-                    <div className="vac-card__top">
-                      <span className="vac-card__title">{v.title}</span>
-                      <span
-                        className={
-                          "vac-status " +
-                          (v.status === "cerrada" ? "is-closed" : "is-open")
-                        }
-                      >
-                        {v.status === "cerrada" ? "Cerrada" : "Abierta"}
-                      </span>
-                    </div>
-                    <div className="vac-card__meta">
-                      {v.candidate_count}{" "}
-                      {v.candidate_count === 1 ? "candidato" : "candidatos"}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="vac-toolbar">
+                  <span className="vac-toolbar__count">
+                    {list.length} {list.length === 1 ? "oferta" : "ofertas"}
+                  </span>
+                  <button onClick={() => setCreating(true)}>+ Nueva oferta</button>
+                </div>
+                <div className="vac-grid">
+                  {list.map((v) => (
+                    <button
+                      key={v.id}
+                      className="vac-card"
+                      onClick={() => setSelectedId(v.id)}
+                    >
+                      <div className="vac-card__head">
+                        <span className="vac-card__icon" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" />
+                            <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </span>
+                        <span
+                          className={
+                            "vac-status " +
+                            (v.status === "cerrada" ? "is-closed" : "is-open")
+                          }
+                        >
+                          {v.status === "cerrada" ? "Cerrada" : "Abierta"}
+                        </span>
+                      </div>
+                      <div className="vac-card__title">{v.title}</div>
+                      <div className="vac-card__meta">
+                        <span className="vac-card__count">{v.candidate_count}</span>
+                        {v.candidate_count === 1 ? "candidato" : "candidatos"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}

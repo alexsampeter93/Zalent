@@ -5,6 +5,7 @@ import {
   saveCandidate,
   listCandidates,
   listForClassification,
+  cleanupOrphans,
   getCandidate,
   updateCandidate,
   deleteCandidate,
@@ -13,7 +14,13 @@ import {
   type CandidateDetail,
 } from "./lib/candidates";
 import { suggestTags } from "./lib/ai/classify";
-import { addNote, listNotes, deleteNote, type Note } from "./lib/notes";
+import {
+  addNote,
+  listNotes,
+  deleteNote,
+  listCandidatesWithNotes,
+  type Note,
+} from "./lib/notes";
 import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import {
@@ -21,6 +28,7 @@ import {
   listAllMemberships,
   listCandidateVacancies,
   setCandidateStage,
+  addCandidateToVacancy,
 } from "./lib/vacancies";
 import {
   addTag,
@@ -34,6 +42,7 @@ import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
 import { OlazSprite } from "./components/OlazSprite";
+import { EmptyState } from "./components/EmptyState";
 import "./App.css";
 
 interface CandidateForm {
@@ -119,6 +128,9 @@ function App() {
   const [batchDone, setBatchDone] = useState(0);
   const [batchErrors, setBatchErrors] = useState<{ name: string; error: string }[]>([]);
   const [batchKey, setBatchKey] = useState(0);
+  const [showBatchMsg, setShowBatchMsg] = useState(false);
+  const [importReminder, setImportReminder] = useState(false);
+  const [showCandReminder, setShowCandReminder] = useState(false);
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -126,8 +138,18 @@ function App() {
   const [filterVacancy, setFilterVacancy] = useState<number | "all">("all");
   const [filterMissing, setFilterMissing] = useState<"none" | "email" | "name">("none");
   const [filterTag, setFilterTag] = useState<string>("all");
+  const [filterNotes, setFilterNotes] = useState<"all" | "with" | "without">("all");
+  const [sortBy, setSortBy] = useState<"recientes" | "antiguos" | "az" | "za">(
+    "recientes",
+  );
   const [vacancyList, setVacancyList] = useState<{ id: number; title: string }[]>([]);
   const [membership, setMembership] = useState<Map<number, Set<number>>>(new Map());
+  const [notedIds, setNotedIds] = useState<Set<number>>(new Set());
+  // Selección múltiple y acciones en lote
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [tagByCandidate, setTagByCandidate] = useState<Map<number, Set<string>>>(new Map());
 
@@ -162,8 +184,11 @@ function App() {
   const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
-    refreshCandidates();
-    refreshFilters();
+    (async () => {
+      await cleanupOrphans(); // limpia huérfanos de borrados antiguos
+      await refreshCandidates();
+      await refreshFilters();
+    })();
   }, []);
 
   // Al volver a Candidatos, recargar por si cambió algo en otra pantalla
@@ -173,6 +198,29 @@ function App() {
       refreshCandidates();
       refreshFilters();
     }
+  }, [screen]);
+
+  // El mensaje "Importados X de Y" se muestra un momento y se desvanece.
+  useEffect(() => {
+    if (!showBatchMsg) return;
+    const t = setTimeout(() => setShowBatchMsg(false), 4500);
+    return () => clearTimeout(t);
+  }, [showBatchMsg]);
+
+  // El aviso "sin clasificar" solo vive en Importar, tras importar.
+  useEffect(() => {
+    if (screen !== "importar") setImportReminder(false);
+  }, [screen]);
+
+  // Recordatorio flotante en Candidatos: aparece al entrar y se va solo.
+  useEffect(() => {
+    if (screen !== "candidatos") {
+      setShowCandReminder(false);
+      return;
+    }
+    setShowCandReminder(true);
+    const t = setTimeout(() => setShowCandReminder(false), 6500);
+    return () => clearTimeout(t);
   }, [screen]);
 
   // Clasifica automáticamente TODA la base (para los CVs ya importados).
@@ -189,6 +237,7 @@ function App() {
       }
       await refreshFilters();
       if (selectedId != null) setTags(await listCandidateTags(selectedId));
+      setImportReminder(false);
       setClassifyMsg(`Clasificados ${tagged} de ${all.length} CVs`);
     } catch (e) {
       console.error(e);
@@ -201,12 +250,14 @@ function App() {
   // Trae las ofertas (para el desplegable) y el mapa candidato→ofertas.
   async function refreshFilters() {
     try {
-      const [vs, ms, allT, tagAssigns] = await Promise.all([
+      const [vs, ms, allT, tagAssigns, noted] = await Promise.all([
         listVacancies(),
         listAllMemberships(),
         listAllTags(),
         listAllTagAssignments(),
+        listCandidatesWithNotes(),
       ]);
+      setNotedIds(new Set(noted));
       setVacancyList(vs.map((v) => ({ id: v.id, title: v.title })));
       const map = new Map<number, Set<number>>();
       for (const m of ms) {
@@ -322,14 +373,12 @@ function App() {
         } catch (err) {
           console.error("save_cv:", err);
         }
-        const newId = await saveCandidate({
+        await saveCandidate({
           full_name: g.full_name, email: g.email, phone: g.phone,
           location: "", headline: "", years_experience: null, education: "",
           links: g.links, raw_text: text, source_file: file.name,
           file_path: filePath, skills: [], languages: [],
         });
-        // Auto-clasificación por señales (idiomas, carnets, estudios…).
-        for (const tag of suggestTags(text, null)) await addTag(newId, tag);
       } catch (err) {
         errors.push({ name: file.name, error: String(err) });
       }
@@ -338,6 +387,8 @@ function App() {
     setBatchErrors(errors);
     setBatchRunning(false);
     setBatchKey((k) => k + 1);
+    setShowBatchMsg(true);
+    setImportReminder(true);
     await refreshCandidates();
     await refreshFilters();
   }
@@ -374,7 +425,7 @@ function App() {
         }
       }
       const cleanYears = years !== null && !Number.isNaN(years) ? years : null;
-      const newId = await saveCandidate({
+      await saveCandidate({
         full_name: form.full_name, email: form.email, phone: form.phone,
         location: form.location, headline: form.headline,
         years_experience: cleanYears,
@@ -383,10 +434,6 @@ function App() {
         file_path: filePath,
         skills: splitList(form.skills), languages: splitList(form.languages),
       });
-      // Auto-clasificación por señales.
-      for (const tag of suggestTags(extractedText, cleanYears)) {
-        await addTag(newId, tag);
-      }
       setForm(emptyForm);
       setExtractedText("");
       setFileName("");
@@ -527,6 +574,7 @@ function App() {
       await addNote(selectedId, newNote.trim());
       setNewNote("");
       setNotes(await listNotes(selectedId));
+      await refreshFilters(); // actualiza el filtro "con/sin notas"
     } catch (e) {
       console.error(e);
     } finally {
@@ -539,6 +587,52 @@ function App() {
     try {
       await deleteNote(id);
       setNotes(await listNotes(selectedId));
+      await refreshFilters();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // ---- Selección múltiple / acciones en lote ----
+  function toggleSelect(id: number) {
+    setSelectedIds((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function toggleSelectAll(ids: number[]) {
+    setSelectedIds((cur) => {
+      const allSelected = ids.length > 0 && ids.every((id) => cur.has(id));
+      return allSelected ? new Set() : new Set(ids);
+    });
+  }
+  function exitSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  }
+  async function onBulkDelete() {
+    setBulkDeleting(true);
+    try {
+      for (const id of selectedIds) await deleteCandidate(id);
+      if (selectedId != null && selectedIds.has(selectedId)) backToList();
+      await refreshCandidates();
+      await refreshFilters();
+      exitSelection();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+  async function onBulkAddToVacancy(vacancyId: number) {
+    try {
+      for (const id of selectedIds) await addCandidateToVacancy(id, vacancyId);
+      await refreshCandidates();
+      await refreshFilters();
+      exitSelection();
     } catch (e) {
       console.error(e);
     }
@@ -555,10 +649,13 @@ function App() {
         id: c.id, full_name: c.full_name, email: c.email,
         headline: c.headline, source_file: c.source_file,
       }));
-  // Aplica los filtros (oferta, datos faltantes, etiqueta) a las filas.
+  // Aplica los filtros (oferta, datos faltantes, etiqueta, notas) a las filas.
   const filtersActive =
-    filterVacancy !== "all" || filterMissing !== "none" || filterTag !== "all";
-  const visibleRows = rows.filter((r) => {
+    filterVacancy !== "all" ||
+    filterMissing !== "none" ||
+    filterTag !== "all" ||
+    filterNotes !== "all";
+  const filteredRows = rows.filter((r) => {
     if (filterVacancy !== "all") {
       const set = membership.get(r.id);
       if (!set || !set.has(filterVacancy)) return false;
@@ -569,19 +666,45 @@ function App() {
     }
     if (filterMissing === "email" && r.email && r.email.trim()) return false;
     if (filterMissing === "name" && r.full_name && r.full_name.trim()) return false;
+    if (filterNotes === "with" && !notedIds.has(r.id)) return false;
+    if (filterNotes === "without" && notedIds.has(r.id)) return false;
     return true;
   });
+  // Orden. En búsqueda con orden por defecto respetamos la relevancia.
+  const nameOf = (r: Row) => (r.full_name || "￿").toLowerCase();
+  const visibleRows =
+    searchMode && sortBy === "recientes"
+      ? filteredRows
+      : [...filteredRows].sort((a, b) => {
+          if (sortBy === "az") return nameOf(a).localeCompare(nameOf(b));
+          if (sortBy === "za") return nameOf(b).localeCompare(nameOf(a));
+          if (sortBy === "antiguos") return a.id - b.id;
+          return b.id - a.id; // recientes
+        });
 
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
   const relevantCount = searchMode
     ? results.filter((r) => r.score >= RELEVANT_FLOOR).length
     : 0;
+  // Candidatos sin ninguna etiqueta (para el aviso "sin clasificar").
+  const unclassifiedCount = candidates.filter(
+    (c) => !tagByCandidate.get(c.id)?.size,
+  ).length;
 
   return (
     <AppShell active={screen} onNavigate={setScreen}>
       {screen === "candidatos" && (
         <div className="screen screen--wide screen--fill">
+          {showCandReminder && unclassifiedCount > 0 && (
+            <div className="cand-toast" key={unclassifiedCount}>
+              <img src="/olaz/coco-thinking-cv.png" alt="" aria-hidden="true" />
+              <span>
+                Recuerda: tienes <strong>{unclassifiedCount}</strong>{" "}
+                {unclassifiedCount === 1 ? "CV" : "CVs"} sin clasificar.
+              </span>
+            </div>
+          )}
           <div className="screen__head">
             <h1 className="screen__title">Candidatos</h1>
             <p className="screen__sub">
@@ -686,6 +809,30 @@ function App() {
                 <option value="name">Sin nombre</option>
                 <option value="email">Sin email</option>
               </select>
+              <select
+                value={filterNotes}
+                onChange={(e) =>
+                  setFilterNotes(e.target.value as "all" | "with" | "without")
+                }
+              >
+                <option value="all">Notas: todas</option>
+                <option value="with">Con notas</option>
+                <option value="without">Sin notas</option>
+              </select>
+              <select
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(
+                    e.target.value as "recientes" | "antiguos" | "az" | "za",
+                  )
+                }
+                title="Ordenar"
+              >
+                <option value="recientes">Más recientes</option>
+                <option value="antiguos">Más antiguos</option>
+                <option value="az">Nombre A–Z</option>
+                <option value="za">Nombre Z–A</option>
+              </select>
               {filtersActive && (
                 <button
                   className="btn-sm btn-ghost"
@@ -693,12 +840,21 @@ function App() {
                     setFilterVacancy("all");
                     setFilterMissing("none");
                     setFilterTag("all");
+                    setFilterNotes("all");
                   }}
                 >
                   Limpiar filtros
                 </button>
               )}
               <div className="filters__spacer" />
+              <button
+                className={"btn-sm" + (selectionMode ? " btn-ghost" : "")}
+                onClick={() =>
+                  selectionMode ? exitSelection() : setSelectionMode(true)
+                }
+              >
+                {selectionMode ? "Cancelar selección" : "Seleccionar"}
+              </button>
               <button
                 className="btn-sm classify-btn"
                 onClick={onAutoClassify}
@@ -710,6 +866,69 @@ function App() {
               {classifyMsg && <span className="classify-msg">{classifyMsg}</span>}
             </div>
           )}
+
+          {selectionMode && !searching && selectedId == null && (
+            <div className="bulk-bar">
+              <label className="bulk-bar__all">
+                <input
+                  type="checkbox"
+                  checked={
+                    visibleRows.length > 0 &&
+                    visibleRows.every((r) => selectedIds.has(r.id))
+                  }
+                  onChange={() => toggleSelectAll(visibleRows.map((r) => r.id))}
+                />
+                Todos
+              </label>
+              <span className="bulk-bar__count">
+                {selectedIds.size} seleccionados
+              </span>
+              <div className="filters__spacer" />
+              <select
+                className="btn-sm"
+                value=""
+                disabled={selectedIds.size === 0 || vacancyList.length === 0}
+                onChange={(e) => {
+                  if (e.target.value) onBulkAddToVacancy(Number(e.target.value));
+                }}
+              >
+                <option value="">＋ Añadir a oferta…</option>
+                {vacancyList.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.title}
+                  </option>
+                ))}
+              </select>
+              {confirmBulkDelete ? (
+                <>
+                  <span className="bulk-bar__confirm">
+                    ¿Eliminar {selectedIds.size}? (borra sus CVs)
+                  </span>
+                  <button
+                    className="btn-sm btn-danger"
+                    onClick={onBulkDelete}
+                    disabled={bulkDeleting}
+                  >
+                    {bulkDeleting ? "Eliminando…" : "Sí, eliminar"}
+                  </button>
+                  <button
+                    className="btn-sm btn-ghost"
+                    onClick={() => setConfirmBulkDelete(false)}
+                  >
+                    No
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn-sm btn-danger-ghost"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={selectedIds.size === 0}
+                >
+                  Eliminar
+                </button>
+              )}
+            </div>
+          )}
           <div className="screen-scroll">
           {searching ? (
             <div className="search-loading">
@@ -719,13 +938,21 @@ function App() {
           ) : selectedId == null ? (
             /* ---------- Vista TABLA (3a) ---------- */
             rows.length === 0 ? (
-              <div className="card">
-                <p className="card__intro">
-                  {searchMode
-                    ? "Sin resultados. Prueba otra búsqueda."
-                    : "Aún no hay candidatos. Ve a Importar para añadir CVs."}
-                </p>
-              </div>
+              searchMode ? (
+                <div className="card">
+                  <p className="card__intro">Sin resultados. Prueba otra búsqueda.</p>
+                </div>
+              ) : (
+                <EmptyState
+                  image="coco-magnifier-cv"
+                  title="Aún no hay candidatos"
+                  subtitle="Arrastra tus CVs (PDF o Word) y Zalent los convierte en fichas que puedes buscar por significado."
+                  action={{
+                    label: "Ir a Importar",
+                    onClick: () => setScreen("importar"),
+                  }}
+                />
+              )
             ) : visibleRows.length === 0 ? (
               <div className="card">
                 <p className="card__intro">Ningún candidato con estos filtros.</p>
@@ -735,6 +962,7 @@ function App() {
                   <table className="table">
                     <thead>
                       <tr>
+                        {selectionMode && <th className="col-check"></th>}
                         <th>Candidato</th>
                         <th>Puesto</th>
                         {searchMode && <th className="col-match">Encaje</th>}
@@ -744,7 +972,29 @@ function App() {
                     </thead>
                     <tbody>
                       {visibleRows.map((r) => (
-                        <tr key={r.id} onClick={() => selectCandidate(r.id)}>
+                        <tr
+                          key={r.id}
+                          className={
+                            selectionMode && selectedIds.has(r.id)
+                              ? "is-selected"
+                              : undefined
+                          }
+                          onClick={() =>
+                            selectionMode
+                              ? toggleSelect(r.id)
+                              : selectCandidate(r.id)
+                          }
+                        >
+                          {selectionMode && (
+                            <td className="col-check">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(r.id)}
+                                onChange={() => toggleSelect(r.id)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                          )}
                           <td>
                             <div className="cellname">
                               <span className="avatar">{initials(r.full_name)}</span>
@@ -1117,8 +1367,8 @@ function App() {
               </div>
             </div>
           )}
-          {!batchRunning && batchTotal > 0 && (
-            <p className="db-ok">
+          {!batchRunning && batchTotal > 0 && showBatchMsg && (
+            <p className="db-ok db-ok--fade">
               ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
               {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
             </p>
@@ -1129,6 +1379,22 @@ function App() {
                 <li key={er.name}>{er.name}: {er.error}</li>
               ))}
             </ul>
+          )}
+
+          {importReminder && unclassifiedCount > 0 && (
+            <div className="classify-reminder">
+              <span>
+                Tienes <strong>{unclassifiedCount}</strong>{" "}
+                {unclassifiedCount === 1 ? "CV sin clasificar" : "CVs sin clasificar"}.
+              </span>
+              <button
+                className="btn-sm classify-btn"
+                onClick={onAutoClassify}
+                disabled={classifying}
+              >
+                {classifying ? "Clasificando…" : "✨ Clasificar automáticamente"}
+              </button>
+            </div>
           )}
 
           {/* Opción secundaria: importar uno y revisarlo */}

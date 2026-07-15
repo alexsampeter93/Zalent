@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { STATUSES } from "../lib/candidates";
+import { EmptyState } from "../components/EmptyState";
 import {
   listVacancies,
   listVacancyCandidates,
@@ -19,6 +20,8 @@ export function Pipeline() {
   const [cands, setCands] = useState<VacancyCandidate[]>([]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
+  const [vacLoaded, setVacLoaded] = useState(false);
+  const [candsLoading, setCandsLoading] = useState(false);
 
   // Cargar la lista de ofertas y elegir la primera por defecto.
   useEffect(() => {
@@ -29,15 +32,20 @@ export function Pipeline() {
         setVacancyId((cur) => cur ?? (vs[0]?.id ?? null));
       } catch (e) {
         console.error(e);
+      } finally {
+        setVacLoaded(true);
       }
     })();
   }, []);
 
   async function loadCands(vId: number) {
+    setCandsLoading(true);
     try {
       setCands(await listVacancyCandidates(vId));
     } catch (e) {
       console.error(e);
+    } finally {
+      setCandsLoading(false);
     }
   }
   useEffect(() => {
@@ -94,23 +102,25 @@ export function Pipeline() {
         </div>
       </div>
 
-      {vacancies.length === 0 ? (
+      {!vacLoaded ? (
+        <div className="screen-scroll" />
+      ) : vacancies.length === 0 ? (
         <div className="screen-scroll">
-          <div className="card">
-            <p className="card__intro">
-              Aún no tienes ofertas. Crea una en <strong>Vacantes</strong> y asígnale
-              candidatos para gestionarlos aquí.
-            </p>
-          </div>
+          <EmptyState
+            image="coco-thinking-cv"
+            title="Todavía no hay ofertas"
+            subtitle="Crea una oferta en Vacantes y asígnale candidatos; aquí gestionarás su pipeline por fases."
+          />
         </div>
+      ) : candsLoading ? (
+        <div className="screen-scroll" />
       ) : cands.length === 0 ? (
         <div className="screen-scroll">
-          <div className="card">
-            <p className="card__intro">
-              Esta oferta aún no tiene candidatos. Ve a <strong>Vacantes</strong> →
-              abre la oferta → “Puntuar candidatos y añadir”.
-            </p>
-          </div>
+          <EmptyState
+            image="coco-sleeping-cv"
+            title="Esta oferta aún no tiene candidatos"
+            subtitle="Ve a Vacantes, abre la oferta y usa “Puntuar candidatos y añadir” para llenar el tablero."
+          />
         </div>
       ) : (
         <div className="kanban">

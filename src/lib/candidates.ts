@@ -82,18 +82,45 @@ export async function saveCandidate(c: CandidateInput): Promise<number> {
 // idiomas). Lo hacemos explícito para no depender de la config de la BD.
 export async function deleteCandidate(id: number): Promise<void> {
   const db = await getDb();
-  // Borrar también el archivo original del CV (borrado real, RGPD).
+  // Guardamos la ruta del CV para borrarlo del disco después (RGPD).
   const rows = await db.select<{ file_path: string | null }[]>(
     "SELECT file_path FROM candidates WHERE id = $1",
     [id],
   );
   const filePath = rows[0]?.file_path;
-  if (filePath) await deleteCvFile(filePath);
 
+  // Borrado en cascada de TODO lo relacionado (no dejar huérfanos).
   await db.execute("DELETE FROM notes WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM skills WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM languages WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidate_tags WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidate_vacancy WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidate_chunks WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM candidate_vectors WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM candidates WHERE id = $1", [id]);
+
+  // El archivo, al final (best-effort; que un fallo aquí no impida el borrado).
+  if (filePath) await deleteCvFile(filePath);
+}
+
+// Limpia filas huérfanas (relacionadas con candidatos que ya no existen).
+// Se ejecuta al arrancar; corrige conteos inflados por borrados antiguos.
+export async function cleanupOrphans(): Promise<void> {
+  const db = await getDb();
+  const tables = [
+    "notes",
+    "skills",
+    "languages",
+    "candidate_tags",
+    "candidate_vacancy",
+    "candidate_chunks",
+    "candidate_vectors",
+  ];
+  for (const t of tables) {
+    await db.execute(
+      `DELETE FROM ${t} WHERE candidate_id NOT IN (SELECT id FROM candidates)`,
+    );
+  }
 }
 
 // Estados posibles del candidato en el proceso de selección.
