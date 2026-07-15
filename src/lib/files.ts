@@ -9,9 +9,11 @@ export async function saveCvFile(file: File): Promise<string> {
   return invoke<string>("save_cv", { fileName, data: bytes });
 }
 
-// Abre el CV con la aplicación por defecto del sistema (PDF/Word tal cual).
+// Abre el CV con la aplicación por defecto del sistema. Si está cifrado, el
+// backend lo descifra a una copia temporal y devolvemos esa ruta para abrirla.
 export async function openCvFile(path: string): Promise<void> {
-  await openPath(path);
+  const openable = await invoke<string>("read_cv_temp", { path });
+  await openPath(openable);
 }
 
 // Borra el archivo del CV (RGPD: borrado real al eliminar el candidato).

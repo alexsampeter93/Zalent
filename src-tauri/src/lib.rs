@@ -1,28 +1,96 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::fs;
-use tauri::Manager;
+use std::sync::Mutex;
+use tauri::{Manager, State};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use serde::{Deserialize, Serialize};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-// Guarda una copia del CV original en la carpeta de datos de la app (local).
-// Devuelve la ruta absoluta, que guardamos en la ficha del candidato.
-#[tauri::command]
-fn save_cv(app: tauri::AppHandle, file_name: String, data: Vec<u8>) -> Result<String, String> {
-    let dir = app
+// Clave de cifrado en memoria durante la sesión (nunca en disco). Se rellena
+// al desbloquear con la contraseña maestra; None = sin cifrado activo.
+#[derive(Default)]
+struct KeyState {
+    key: Mutex<Option<[u8; 32]>>,
+}
+
+// Cabecera que marca un archivo como cifrado por Zalent.
+const MAGIC: &[u8; 5] = b"ZENC1";
+
+fn is_encrypted(data: &[u8]) -> bool {
+    data.len() >= 5 && &data[0..5] == MAGIC
+}
+
+fn encrypt_bytes(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, String> {
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let mut nonce = [0u8; 12];
+    getrandom::getrandom(&mut nonce).map_err(|e| e.to_string())?;
+    let ct = cipher
+        .encrypt(Nonce::from_slice(&nonce), data)
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(5 + 12 + ct.len());
+    out.extend_from_slice(MAGIC);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+fn decrypt_bytes(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, String> {
+    if !is_encrypted(data) || data.len() < 17 {
+        return Err("archivo no cifrado o corrupto".into());
+    }
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    cipher
+        .decrypt(Nonce::from_slice(&data[5..17]), &data[17..])
+        .map_err(|e| e.to_string())
+}
+
+// Deriva la clave de cifrado (32 bytes) desde la contraseña y una sal DISTINTA
+// a la del hash de verificación (para no reutilizar sal ni exponer la clave).
+fn derive_key(password: &str, enc_salt_b64: &str) -> Result<[u8; 32], String> {
+    let salt = SaltString::from_b64(enc_salt_b64).map_err(|e| e.to_string())?;
+    let mut salt_bytes = [0u8; 32];
+    let sb = salt.decode_b64(&mut salt_bytes).map_err(|e| e.to_string())?;
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), sb, &mut key)
+        .map_err(|e| e.to_string())?;
+    Ok(key)
+}
+
+fn cvs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("cvs");
+        .join("cvs"))
+}
+
+// Guarda una copia del CV en la carpeta de datos (local). Si la app está
+// desbloqueada con contraseña, el archivo se guarda CIFRADO.
+#[tauri::command]
+fn save_cv(
+    app: tauri::AppHandle,
+    state: State<KeyState>,
+    file_name: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
+    let dir = cvs_dir(&app)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(&file_name);
-    fs::write(&path, &data).map_err(|e| e.to_string())?;
+    let bytes = match state.key.lock().unwrap().as_ref() {
+        Some(key) => encrypt_bytes(key, &data)?,
+        None => data,
+    };
+    fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -33,54 +101,218 @@ fn delete_cv(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// ----- Contraseña maestra (bloqueo de la app) -----
-// Guardamos SOLO un hash Argon2 (con sal aleatoria) en `vault.json`. La
-// contraseña en sí NO se guarda en ningún sitio. No hay recuperación.
+// Devuelve una ruta ABIERTA por el SO: si el archivo está cifrado, lo descifra
+// a una copia temporal y devuelve esa; si no, devuelve la ruta original.
+#[tauri::command]
+fn read_cv_temp(state: State<KeyState>, path: String) -> Result<String, String> {
+    let data = fs::read(&path).map_err(|e| e.to_string())?;
+    if !is_encrypted(&data) {
+        return Ok(path);
+    }
+    let guard = state.key.lock().unwrap();
+    let key = guard.as_ref().ok_or("app bloqueada")?;
+    let plain = decrypt_bytes(key, &data)?;
+    let name = std::path::Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "cv".into());
+    let tmpdir = std::env::temp_dir().join("zalent_view");
+    fs::create_dir_all(&tmpdir).map_err(|e| e.to_string())?;
+    let tmp = tmpdir.join(name);
+    fs::write(&tmp, &plain).map_err(|e| e.to_string())?;
+    Ok(tmp.to_string_lossy().to_string())
+}
+
+// ----- Contraseña maestra + cifrado -----
+// `vault.json` (v2) = JSON { hash, enc_salt }. La contraseña NO se guarda; solo
+// el hash Argon2 (verificación) y una sal para derivar la clave. Sin recuperación.
+#[derive(Serialize, Deserialize)]
+struct Vault {
+    hash: String,
+    #[serde(default)]
+    enc_salt: String,
+}
+
 fn vault_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("vault.json"))
 }
 
-#[tauri::command]
-fn has_master_password(app: tauri::AppHandle) -> Result<bool, String> {
-    let p = vault_path(&app)?;
-    Ok(p.exists()
-        && fs::read_to_string(&p)
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false))
+fn read_vault(app: &tauri::AppHandle) -> Result<Option<Vault>, String> {
+    let p = vault_path(app)?;
+    if !p.exists() {
+        return Ok(None);
+    }
+    let s = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+    if s.trim().is_empty() {
+        return Ok(None);
+    }
+    // v2 = JSON; legacy = solo el hash como texto plano.
+    match serde_json::from_str::<Vault>(&s) {
+        Ok(v) => Ok(Some(v)),
+        Err(_) => Ok(Some(Vault {
+            hash: s.trim().to_string(),
+            enc_salt: String::new(),
+        })),
+    }
+}
+
+fn verify_pw(vault: &Vault, password: &str) -> bool {
+    match PasswordHash::new(vault.hash.trim()) {
+        Ok(parsed) => Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+        Err(_) => false,
+    }
 }
 
 #[tauri::command]
-fn set_master_password(app: tauri::AppHandle, password: String) -> Result<(), String> {
-    let mut salt_bytes = [0u8; 16];
-    getrandom::getrandom(&mut salt_bytes).map_err(|e| e.to_string())?;
-    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
+fn has_master_password(app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(read_vault(&app)?.is_some())
+}
+
+#[tauri::command]
+fn set_master_password(
+    app: tauri::AppHandle,
+    state: State<KeyState>,
+    password: String,
+) -> Result<(), String> {
+    // Sal del HASH de verificación.
+    let mut hsalt = [0u8; 16];
+    getrandom::getrandom(&mut hsalt).map_err(|e| e.to_string())?;
+    let hsalt = SaltString::encode_b64(&hsalt).map_err(|e| e.to_string())?;
     let hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes(), &hsalt)
         .map_err(|e| e.to_string())?
         .to_string();
-    fs::write(vault_path(&app)?, hash).map_err(|e| e.to_string())?;
+    // Sal DISTINTA para la clave de cifrado.
+    let mut esalt = [0u8; 16];
+    getrandom::getrandom(&mut esalt).map_err(|e| e.to_string())?;
+    let enc_salt = SaltString::encode_b64(&esalt)
+        .map_err(|e| e.to_string())?
+        .to_string();
+    let vault = Vault {
+        hash,
+        enc_salt: enc_salt.clone(),
+    };
+    fs::write(
+        vault_path(&app)?,
+        serde_json::to_string(&vault).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    // Dejamos la clave lista en memoria para poder cifrar ya.
+    *state.key.lock().unwrap() = Some(derive_key(&password, &enc_salt)?);
     Ok(())
 }
 
+// Desbloqueo: verifica y, si hay sal de cifrado, deja la clave en memoria.
 #[tauri::command]
-fn verify_master_password(app: tauri::AppHandle, password: String) -> Result<bool, String> {
-    let stored = fs::read_to_string(vault_path(&app)?).map_err(|e| e.to_string())?;
-    let parsed = PasswordHash::new(stored.trim()).map_err(|e| e.to_string())?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
-}
-
-// Quita la contraseña (tras verificarla). Devuelve false si no coincide.
-#[tauri::command]
-fn remove_master_password(app: tauri::AppHandle, password: String) -> Result<bool, String> {
-    if !verify_master_password(app.clone(), password)? {
+fn unlock(app: tauri::AppHandle, state: State<KeyState>, password: String) -> Result<bool, String> {
+    let vault = match read_vault(&app)? {
+        Some(v) => v,
+        None => return Ok(false),
+    };
+    if !verify_pw(&vault, &password) {
         return Ok(false);
     }
-    let _ = fs::remove_file(vault_path(&app)?);
+    if !vault.enc_salt.is_empty() {
+        *state.key.lock().unwrap() = Some(derive_key(&password, &vault.enc_salt)?);
+    }
     Ok(true)
+}
+
+// Descifra TODOS los CVs (para poder quitar la contraseña sin perderlos).
+fn decrypt_all_cvs(app: &tauri::AppHandle, key: &[u8; 32]) -> Result<usize, String> {
+    let dir = cvs_dir(app)?;
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let mut count = 0usize;
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if !path.is_file() {
+            continue;
+        }
+        let data = fs::read(&path).map_err(|e| e.to_string())?;
+        if !is_encrypted(&data) {
+            continue;
+        }
+        let plain = decrypt_bytes(key, &data)?;
+        let tmp = path.with_extension("tmp_dec");
+        fs::write(&tmp, &plain).map_err(|e| e.to_string())?;
+        fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+// Quita la contraseña (tras verificar). Si hay archivos cifrados, los DESCIFRA
+// antes (para no dejarlos inaccesibles). Devuelve false si la contraseña falla.
+#[tauri::command]
+fn remove_master_password(
+    app: tauri::AppHandle,
+    state: State<KeyState>,
+    password: String,
+) -> Result<bool, String> {
+    let vault = match read_vault(&app)? {
+        Some(v) => v,
+        None => return Ok(true),
+    };
+    if !verify_pw(&vault, &password) {
+        return Ok(false);
+    }
+    if !vault.enc_salt.is_empty() {
+        let key = derive_key(&password, &vault.enc_salt)?;
+        decrypt_all_cvs(&app, &key)?;
+    }
+    let _ = fs::remove_file(vault_path(&app)?);
+    *state.key.lock().unwrap() = None;
+    Ok(true)
+}
+
+// Autotest del motor de cifrado: cifra y descifra una muestra en memoria.
+// Sirve para comprobar que todo funciona ANTES de tocar archivos reales.
+#[tauri::command]
+fn crypto_selftest(state: State<KeyState>) -> Result<bool, String> {
+    let guard = state.key.lock().unwrap();
+    let key = guard.as_ref().ok_or("no hay clave (desbloquea la app)")?;
+    let sample = b"zalent-selftest-0123456789";
+    let enc = encrypt_bytes(key, sample)?;
+    Ok(decrypt_bytes(key, &enc)? == sample)
+}
+
+// Cifra todos los CVs que aún estén en claro. SEGURO: cifra, verifica que se
+// descifra idéntico, y solo entonces reemplaza (si falla, no toca el original).
+#[tauri::command]
+fn encrypt_all_cvs(app: tauri::AppHandle, state: State<KeyState>) -> Result<usize, String> {
+    let guard = state.key.lock().unwrap();
+    let key = guard.as_ref().ok_or("no hay clave (desbloquea la app)")?;
+    let dir = cvs_dir(&app)?;
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let mut count = 0usize;
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if !path.is_file() {
+            continue;
+        }
+        let data = fs::read(&path).map_err(|e| e.to_string())?;
+        if is_encrypted(&data) {
+            continue;
+        }
+        let enc = encrypt_bytes(key, &data)?;
+        // Verificación de ida y vuelta ANTES de reemplazar.
+        if decrypt_bytes(key, &enc)? != data {
+            return Err(format!("verificación fallida en {}", path.display()));
+        }
+        let tmp = path.with_extension("tmp_enc");
+        fs::write(&tmp, &enc).map_err(|e| e.to_string())?;
+        fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -237,6 +469,7 @@ pub fn run() {
     }];
 
     tauri::Builder::default()
+        .manage(KeyState::default())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:zalent.db", migrations)
@@ -247,10 +480,13 @@ pub fn run() {
             greet,
             save_cv,
             delete_cv,
+            read_cv_temp,
             has_master_password,
             set_master_password,
-            verify_master_password,
-            remove_master_password
+            unlock,
+            remove_master_password,
+            crypto_selftest,
+            encrypt_all_cvs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

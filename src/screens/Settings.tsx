@@ -4,6 +4,8 @@ import {
   hasMasterPassword,
   setMasterPassword,
   removeMasterPassword,
+  cryptoSelftest,
+  encryptAllCvs,
 } from "../lib/lock";
 
 // Ajustes → Privacidad y seguridad: transparencia + derecho al olvido (RGPD).
@@ -20,6 +22,34 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
   const [removePw, setRemovePw] = useState("");
   const [pwMsg, setPwMsg] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
+  const [encMsg, setEncMsg] = useState("");
+  const [encBusy, setEncBusy] = useState(false);
+
+  async function onSelftest() {
+    setEncBusy(true);
+    setEncMsg("");
+    try {
+      const ok = await cryptoSelftest();
+      setEncMsg(ok ? "✅ El motor de cifrado funciona correctamente." : "⚠️ El autotest falló.");
+    } catch (e) {
+      setEncMsg("Error: " + String(e));
+    } finally {
+      setEncBusy(false);
+    }
+  }
+
+  async function onEncryptAll() {
+    setEncBusy(true);
+    setEncMsg("");
+    try {
+      const n = await encryptAllCvs();
+      setEncMsg(`✅ Cifrados ${n} archivo(s). Tus CVs ya están cifrados en disco.`);
+    } catch (e) {
+      setEncMsg("Error: " + String(e));
+    } finally {
+      setEncBusy(false);
+    }
+  }
 
   useEffect(() => {
     hasMasterPassword().then(setHasPw).catch(() => {});
@@ -179,6 +209,32 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
           )}
           {pwMsg && <p className="card__hint">{pwMsg}</p>}
         </div>
+
+        {hasPw && (
+          <div className="panel-card">
+            <h2 className="panel-card__title">🔐 Cifrado de archivos</h2>
+            <p className="card__intro">
+              Cifra los CVs guardados en disco con tu contraseña. Después,{" "}
+              <strong>sin tu contraseña son ilegibles</strong> (protección en
+              reposo real). Antes de cifrar, haz una <strong>copia de seguridad</strong>{" "}
+              y pulsa “Comprobar cifrado”. La migración cifra, verifica y solo
+              entonces reemplaza (si algo falla, no toca el original).
+            </p>
+            <div className="actions">
+              <button
+                className="btn-secondary"
+                onClick={onSelftest}
+                disabled={encBusy}
+              >
+                Comprobar cifrado
+              </button>
+              <button onClick={onEncryptAll} disabled={encBusy}>
+                {encBusy ? "…" : "Cifrar mis archivos"}
+              </button>
+            </div>
+            {encMsg && <p className="card__hint">{encMsg}</p>}
+          </div>
+        )}
 
         <div className="danger-zone">
           <h2 className="panel-card__title">Zona peligrosa</h2>

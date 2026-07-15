@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { verifyMasterPassword } from "../lib/lock";
+import { unlock } from "../lib/lock";
 
 // Pantalla de desbloqueo: pide la contraseña maestra al abrir la app.
 export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
@@ -13,7 +13,7 @@ export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
     setChecking(true);
     setError("");
     try {
-      if (await verifyMasterPassword(password)) onUnlock();
+      if (await unlock(password)) onUnlock();
       else setError("Contraseña incorrecta.");
     } catch (err) {
       console.error(err);
