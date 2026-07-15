@@ -7,17 +7,21 @@ import {
   listForClassification,
   getCandidate,
   updateCandidate,
-  updateCandidateStatus,
   deleteCandidate,
   STATUSES,
   type CandidateRow,
   type CandidateDetail,
 } from "./lib/candidates";
 import { suggestTags } from "./lib/ai/classify";
-import { addNote, listNotes, type Note } from "./lib/notes";
+import { addNote, listNotes, deleteNote, type Note } from "./lib/notes";
 import { saveCvFile, openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
-import { listVacancies, listAllMemberships } from "./lib/vacancies";
+import {
+  listVacancies,
+  listAllMemberships,
+  listCandidateVacancies,
+  setCandidateStage,
+} from "./lib/vacancies";
 import {
   addTag,
   removeTag,
@@ -29,6 +33,7 @@ import { AppShell, ComingSoon, type Screen } from "./shell/AppShell";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
+import { OlazSprite } from "./components/OlazSprite";
 import "./App.css";
 
 interface CandidateForm {
@@ -96,10 +101,6 @@ interface Row {
   match?: number;
 }
 
-function statusLabel(key: string): string {
-  return STATUSES.find((s) => s.key === key)?.label ?? "Nuevo";
-}
-
 function App() {
   const [screen, setScreen] = useState<Screen>("candidatos");
 
@@ -133,6 +134,10 @@ function App() {
   // Etiquetas del candidato seleccionado (en su ficha).
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  // Ofertas del candidato seleccionado (con su fase en cada una).
+  const [candOffers, setCandOffers] = useState<
+    { id: number; title: string; stage: string }[]
+  >([]);
   const [classifying, setClassifying] = useState(false);
   const [classifyMsg, setClassifyMsg] = useState("");
 
@@ -407,6 +412,7 @@ function App() {
       setDetail(await getCandidate(id));
       setNotes(await listNotes(id));
       setTags(await listCandidateTags(id));
+      setCandOffers(await listCandidateVacancies(id));
     } catch (e) {
       console.error(e);
     }
@@ -500,14 +506,17 @@ function App() {
     }
   }
 
-  async function onStatusChange(status: string) {
+  // Cambia la fase del candidato DENTRO de una oferta (desde su ficha).
+  async function onOfferStageChange(vacancyId: number, stage: string) {
     if (selectedId == null) return;
+    setCandOffers((cur) =>
+      cur.map((o) => (o.id === vacancyId ? { ...o, stage } : o)),
+    );
     try {
-      await updateCandidateStatus(selectedId, status);
-      setDetail(await getCandidate(selectedId));
-      await refreshCandidates();
+      await setCandidateStage(selectedId, vacancyId, stage);
     } catch (e) {
       console.error(e);
+      setCandOffers(await listCandidateVacancies(selectedId));
     }
   }
 
@@ -522,6 +531,16 @@ function App() {
       console.error(e);
     } finally {
       setSavingNote(false);
+    }
+  }
+
+  async function onDeleteNote(id: number) {
+    if (selectedId == null) return;
+    try {
+      await deleteNote(id);
+      setNotes(await listNotes(selectedId));
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -555,7 +574,6 @@ function App() {
 
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
-  const statusById = new Map(candidates.map((c) => [c.id, c.status]));
   const relevantCount = searchMode
     ? results.filter((r) => r.score >= RELEVANT_FLOOR).length
     : 0;
@@ -572,6 +590,19 @@ function App() {
           </div>
 
           <form className="searchbar" onSubmit={doSearch}>
+            <OlazSprite
+              className="olaz-perch"
+              name="olaz-peek"
+              frames={5}
+              fps={8}
+              width={116}
+              height={91}
+              sequence={[
+                3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 1, 1, 2, 3, 3, 3, 3, 3, 3,
+                3, 3, 3, 3, 3, 3, 4, 5, 5, 4,
+              ]}
+              alt=""
+            />
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
             <input
               value={query}
@@ -707,7 +738,7 @@ function App() {
                         <th>Candidato</th>
                         <th>Puesto</th>
                         {searchMode && <th className="col-match">Encaje</th>}
-                        <th>Estado</th>
+                        <th>Ofertas</th>
                         <th>Fuente</th>
                       </tr>
                     </thead>
@@ -732,9 +763,13 @@ function App() {
                             </td>
                           )}
                           <td>
-                            <span className={"badge st-" + (statusById.get(r.id) ?? "nuevo")}>
-                              {statusLabel(statusById.get(r.id) ?? "nuevo")}
-                            </span>
+                            {membership.get(r.id)?.size ? (
+                              <span className="offers-count">
+                                {membership.get(r.id)!.size}
+                              </span>
+                            ) : (
+                              <span className="cell-muted">—</span>
+                            )}
                           </td>
                           <td className="cell-muted">{r.source_file || "—"}</td>
                         </tr>
@@ -789,19 +824,37 @@ function App() {
                     </div>
 
                     {!editing && (
-                      <div className="status-picker">
-                        {STATUSES.map((s) => (
-                          <button
-                            key={s.key}
-                            className={
-                              "status-opt st-" + s.key +
-                              (detail.status === s.key ? " is-current" : "")
-                            }
-                            onClick={() => onStatusChange(s.key)}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
+                      <div className="offers-box">
+                        <div className="offers-box__label">
+                          Ofertas ({candOffers.length})
+                        </div>
+                        {candOffers.length === 0 ? (
+                          <p className="offers-box__empty">
+                            No está en ninguna oferta. Asígnalo desde{" "}
+                            <strong>Vacantes</strong>.
+                          </p>
+                        ) : (
+                          <ul className="offers-list">
+                            {candOffers.map((o) => (
+                              <li key={o.id} className="offers-row">
+                                <span className="offers-row__title">{o.title}</span>
+                                <select
+                                  className={"stage-select st-" + o.stage}
+                                  value={o.stage}
+                                  onChange={(e) =>
+                                    onOfferStageChange(o.id, e.target.value)
+                                  }
+                                >
+                                  {STATUSES.map((s) => (
+                                    <option key={s.key} value={s.key}>
+                                      {s.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )}
 
@@ -960,7 +1013,17 @@ function App() {
                       <ul className="note-list">
                         {notes.map((n) => (
                           <li key={n.id} className="note-item">
-                            <div className="note-date">{formatDateTime(n.created_at)}</div>
+                            <div className="note-item__head">
+                              <span className="note-date">{formatDateTime(n.created_at)}</span>
+                              <button
+                                className="note-del"
+                                onClick={() => onDeleteNote(n.id)}
+                                title="Eliminar nota"
+                                aria-label="Eliminar nota"
+                              >
+                                ×
+                              </button>
+                            </div>
                             <div className="note-body">{n.body}</div>
                           </li>
                         ))}

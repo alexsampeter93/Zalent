@@ -163,6 +163,16 @@ export async function listAllMemberships(): Promise<
   );
 }
 
+// Reparto de asignaciones por fase, sumando TODAS las ofertas (para el Panel).
+export async function stageDistribution(): Promise<
+  { stage: string; count: number }[]
+> {
+  const db = await getDb();
+  return db.select<{ stage: string; count: number }[]>(
+    "SELECT stage, COUNT(*) AS count FROM candidate_vacancy GROUP BY stage",
+  );
+}
+
 // Ofertas a las que pertenece un candidato (para su ficha).
 export async function listCandidateVacancies(
   candidateId: number,

@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { listCandidates, STATUSES, type CandidateRow } from "../lib/candidates";
+import { listCandidates, type CandidateRow } from "../lib/candidates";
+import {
+  listVacancies,
+  listAllMemberships,
+  stageDistribution,
+  STAGES,
+} from "../lib/vacancies";
 
-// Color de cada estado (coherente con los badges y el kanban).
-const STATUS_COLOR: Record<string, string> = {
+// Color de cada fase (coherente con los badges y el kanban).
+const STAGE_COLOR: Record<string, string> = {
   nuevo: "#f59e0b",
   entrevista: "#3b82f6",
   oferta: "#10b981",
@@ -11,12 +17,27 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function Panel() {
   const [cands, setCands] = useState<CandidateRow[]>([]);
+  const [offers, setOffers] = useState(0);
+  const [assignments, setAssignments] = useState(0);
+  const [stageCounts, setStageCounts] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        setCands(await listCandidates());
+        const [cs, vs, ms, dist] = await Promise.all([
+          listCandidates(),
+          listVacancies(),
+          listAllMemberships(),
+          stageDistribution(),
+        ]);
+        setCands(cs);
+        setOffers(vs.length);
+        setAssignments(ms.length);
+        const m = new Map<string, number>();
+        for (const s of STAGES) m.set(s.key, 0);
+        for (const d of dist) m.set(d.stage, d.count);
+        setStageCounts(m);
       } catch (e) {
         console.error(e);
       } finally {
@@ -25,30 +46,24 @@ export function Panel() {
     })();
   }, []);
 
-  // Todas las cuentas se calculan en local desde la lista real.
   const stats = useMemo(() => {
-    const total = cands.length;
-    const byStatus = new Map<string, number>();
-    for (const s of STATUSES) byStatus.set(s.key, 0);
     let noName = 0;
     let noEmail = 0;
     for (const c of cands) {
-      const key = c.status || "nuevo";
-      byStatus.set(key, (byStatus.get(key) ?? 0) + 1);
       if (!c.full_name || !c.full_name.trim()) noName++;
       if (!c.email || !c.email.trim()) noEmail++;
     }
     const inProcess =
-      (byStatus.get("entrevista") ?? 0) + (byStatus.get("oferta") ?? 0);
-    const maxCount = Math.max(1, ...STATUSES.map((s) => byStatus.get(s.key) ?? 0));
-    return { total, byStatus, inProcess, maxCount, noName, noEmail };
-  }, [cands]);
+      (stageCounts.get("entrevista") ?? 0) + (stageCounts.get("oferta") ?? 0);
+    const maxCount = Math.max(1, ...STAGES.map((s) => stageCounts.get(s.key) ?? 0));
+    return { total: cands.length, noName, noEmail, inProcess, maxCount };
+  }, [cands, stageCounts]);
 
   const kpis = [
     { label: "Candidatos", value: stats.total, color: null },
-    { label: "Nuevos", value: stats.byStatus.get("nuevo") ?? 0, color: STATUS_COLOR.nuevo },
-    { label: "En proceso", value: stats.inProcess, color: STATUS_COLOR.entrevista },
-    { label: "Descartados", value: stats.byStatus.get("descartado") ?? 0, color: STATUS_COLOR.descartado },
+    { label: "Ofertas", value: offers, color: null },
+    { label: "Asignaciones", value: assignments, color: null },
+    { label: "En proceso", value: stats.inProcess, color: STAGE_COLOR.entrevista },
   ];
 
   return (
@@ -84,34 +99,41 @@ export function Panel() {
               ))}
             </div>
 
-            {/* Distribución por estado */}
+            {/* Distribución por fase (sumando todas las ofertas) */}
             <div className="panel-card">
-              <h2 className="panel-card__title">Distribución por estado</h2>
-              <div className="dist">
-                {STATUSES.map((s) => {
-                  const n = stats.byStatus.get(s.key) ?? 0;
-                  const pct = stats.total > 0 ? (n / stats.total) * 100 : 0;
-                  const width = (n / stats.maxCount) * 100;
-                  return (
-                    <div className="dist__row" key={s.key}>
-                      <div className="dist__name">{s.label}</div>
-                      <div className="dist__track">
-                        <div
-                          className="dist__bar"
-                          style={{
-                            width: `${width}%`,
-                            background: STATUS_COLOR[s.key],
-                          }}
-                        />
+              <h2 className="panel-card__title">Fases del pipeline</h2>
+              {assignments === 0 ? (
+                <p className="card__intro">
+                  Aún no has asignado candidatos a ninguna oferta. Hazlo desde
+                  Vacantes para ver aquí el reparto por fase.
+                </p>
+              ) : (
+                <div className="dist">
+                  {STAGES.map((s) => {
+                    const n = stageCounts.get(s.key) ?? 0;
+                    const pct = assignments > 0 ? (n / assignments) * 100 : 0;
+                    const width = (n / stats.maxCount) * 100;
+                    return (
+                      <div className="dist__row" key={s.key}>
+                        <div className="dist__name">{s.label}</div>
+                        <div className="dist__track">
+                          <div
+                            className="dist__bar"
+                            style={{
+                              width: `${width}%`,
+                              background: STAGE_COLOR[s.key],
+                            }}
+                          />
+                        </div>
+                        <div className="dist__val">
+                          <strong>{n}</strong>
+                          <span>{pct.toFixed(0)}%</span>
+                        </div>
                       </div>
-                      <div className="dist__val">
-                        <strong>{n}</strong>
-                        <span>{pct.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Calidad de los datos */}

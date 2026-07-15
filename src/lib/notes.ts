@@ -23,3 +23,9 @@ export async function listNotes(candidateId: number): Promise<Note[]> {
     [candidateId],
   );
 }
+
+// Borra una nota por su id.
+export async function deleteNote(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM notes WHERE id = $1", [id]);
+}
