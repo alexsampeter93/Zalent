@@ -41,6 +41,8 @@ import {
 } from "./lib/tags";
 import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
+import { LockScreen } from "./screens/LockScreen";
+import { hasMasterPassword } from "./lib/lock";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
@@ -115,6 +117,8 @@ interface Row {
 
 function App() {
   const [screen, setScreen] = useState<Screen>("candidatos");
+  // Bloqueo: null = comprobando, true = bloqueada, false = abierta.
+  const [locked, setLocked] = useState<boolean | null>(null);
 
   // Importación
   const [fileName, setFileName] = useState("");
@@ -195,6 +199,13 @@ function App() {
       await refreshCandidates();
       await refreshFilters();
     })();
+  }, []);
+
+  // ¿Hay contraseña maestra? Si la hay, la app arranca bloqueada.
+  useEffect(() => {
+    hasMasterPassword()
+      .then((has) => setLocked(has))
+      .catch(() => setLocked(false));
   }, []);
 
   // Al volver a Candidatos, recargar por si cambió algo en otra pantalla
@@ -735,6 +746,10 @@ function App() {
   const unclassifiedCount = candidates.filter(
     (c) => !tagByCandidate.get(c.id)?.size,
   ).length;
+
+  // Bloqueo: mientras comprobamos no pintamos nada; si está bloqueada, el candado.
+  if (locked === null) return null;
+  if (locked) return <LockScreen onUnlock={() => setLocked(false)} />;
 
   return (
     <AppShell active={screen} onNavigate={setScreen}>

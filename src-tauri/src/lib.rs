@@ -3,6 +3,9 @@ use std::fs;
 use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -28,6 +31,56 @@ fn save_cv(app: tauri::AppHandle, file_name: String, data: Vec<u8>) -> Result<St
 fn delete_cv(path: String) -> Result<(), String> {
     let _ = fs::remove_file(&path);
     Ok(())
+}
+
+// ----- Contraseña maestra (bloqueo de la app) -----
+// Guardamos SOLO un hash Argon2 (con sal aleatoria) en `vault.json`. La
+// contraseña en sí NO se guarda en ningún sitio. No hay recuperación.
+fn vault_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("vault.json"))
+}
+
+#[tauri::command]
+fn has_master_password(app: tauri::AppHandle) -> Result<bool, String> {
+    let p = vault_path(&app)?;
+    Ok(p.exists()
+        && fs::read_to_string(&p)
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false))
+}
+
+#[tauri::command]
+fn set_master_password(app: tauri::AppHandle, password: String) -> Result<(), String> {
+    let mut salt_bytes = [0u8; 16];
+    getrandom::getrandom(&mut salt_bytes).map_err(|e| e.to_string())?;
+    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
+    let hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| e.to_string())?
+        .to_string();
+    fs::write(vault_path(&app)?, hash).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn verify_master_password(app: tauri::AppHandle, password: String) -> Result<bool, String> {
+    let stored = fs::read_to_string(vault_path(&app)?).map_err(|e| e.to_string())?;
+    let parsed = PasswordHash::new(stored.trim()).map_err(|e| e.to_string())?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok())
+}
+
+// Quita la contraseña (tras verificarla). Devuelve false si no coincide.
+#[tauri::command]
+fn remove_master_password(app: tauri::AppHandle, password: String) -> Result<bool, String> {
+    if !verify_master_password(app.clone(), password)? {
+        return Ok(false);
+    }
+    let _ = fs::remove_file(vault_path(&app)?);
+    Ok(true)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -190,7 +243,15 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, save_cv, delete_cv])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            save_cv,
+            delete_cv,
+            has_master_password,
+            set_master_password,
+            verify_master_password,
+            remove_master_password
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

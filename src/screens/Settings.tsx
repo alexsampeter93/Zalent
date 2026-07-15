@@ -1,5 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { wipeAllData } from "../lib/candidates";
+import {
+  hasMasterPassword,
+  setMasterPassword,
+  removeMasterPassword,
+} from "../lib/lock";
 
 // Ajustes → Privacidad y seguridad: transparencia + derecho al olvido (RGPD).
 export function Settings({ onWiped }: { onWiped: () => void }) {
@@ -7,6 +12,63 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
   const [confirmText, setConfirmText] = useState("");
   const [wiping, setWiping] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Contraseña maestra
+  const [hasPw, setHasPw] = useState(false);
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [removePw, setRemovePw] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+
+  useEffect(() => {
+    hasMasterPassword().then(setHasPw).catch(() => {});
+  }, []);
+
+  async function onSetPw() {
+    if (pw1.length < 4) {
+      setPwMsg("Usa al menos 4 caracteres.");
+      return;
+    }
+    if (pw1 !== pw2) {
+      setPwMsg("Las contraseñas no coinciden.");
+      return;
+    }
+    setPwBusy(true);
+    setPwMsg("");
+    try {
+      await setMasterPassword(pw1);
+      setHasPw(true);
+      setPw1("");
+      setPw2("");
+      setPwMsg("✅ Contraseña activada. Te la pedirá al abrir la app.");
+    } catch (e) {
+      console.error(e);
+      setPwMsg("Error al guardar la contraseña.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function onRemovePw() {
+    setPwBusy(true);
+    setPwMsg("");
+    try {
+      const ok = await removeMasterPassword(removePw);
+      if (ok) {
+        setHasPw(false);
+        setRemovePw("");
+        setPwMsg("✅ Contraseña quitada.");
+      } else {
+        setPwMsg("Contraseña incorrecta.");
+      }
+    } catch (e) {
+      console.error(e);
+      setPwMsg("Error.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
 
   async function wipe() {
     setWiping(true);
@@ -56,6 +118,66 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
             Al borrar un candidato se elimina de verdad: su ficha, sus datos y su
             archivo del disco. No hay “papelera” oculta.
           </p>
+        </div>
+
+        <div className="panel-card">
+          <h2 className="panel-card__title">🔑 Contraseña maestra</h2>
+          {!hasPw ? (
+            <>
+              <p className="card__intro">
+                Protege el acceso a la app con una contraseña que te pedirá al
+                abrir. <strong>No hay recuperación</strong>: si la olvidas, no
+                podrás entrar. (De momento <strong>bloquea la app</strong>; el
+                cifrado de los archivos llegará en el siguiente paso.)
+              </p>
+              <label className="field">
+                <span>Nueva contraseña</span>
+                <input
+                  type="password"
+                  value={pw1}
+                  onChange={(e) => setPw1(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Repítela</span>
+                <input
+                  type="password"
+                  value={pw2}
+                  onChange={(e) => setPw2(e.target.value)}
+                />
+              </label>
+              <div className="actions">
+                <button onClick={onSetPw} disabled={pwBusy || !pw1}>
+                  {pwBusy ? "Guardando…" : "Activar contraseña"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="card__intro">
+                La app está protegida con contraseña maestra. Para quitarla,
+                introdúcela:
+              </p>
+              <label className="field">
+                <span>Contraseña actual</span>
+                <input
+                  type="password"
+                  value={removePw}
+                  onChange={(e) => setRemovePw(e.target.value)}
+                />
+              </label>
+              <div className="actions">
+                <button
+                  className="btn-danger"
+                  onClick={onRemovePw}
+                  disabled={pwBusy || !removePw}
+                >
+                  {pwBusy ? "…" : "Quitar contraseña"}
+                </button>
+              </div>
+            </>
+          )}
+          {pwMsg && <p className="card__hint">{pwMsg}</p>}
         </div>
 
         <div className="danger-zone">
