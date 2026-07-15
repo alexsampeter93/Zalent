@@ -503,6 +503,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(KeyState::default())
+        .setup(|_app| {
+            // Al arrancar, borramos las copias temporales EN CLARO que se
+            // generan al ver un CV cifrado (que no queden en el disco).
+            let tmp = std::env::temp_dir().join("zalent_view");
+            let _ = fs::remove_dir_all(&tmp);
+            Ok(())
+        })
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:zalent.db", migrations)
