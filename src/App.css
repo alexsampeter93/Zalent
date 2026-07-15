@@ -12,6 +12,7 @@
 .card__title {
   margin: 0 0 0.6rem;
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 1.35rem;
   color: var(--ink);
 }
@@ -542,6 +543,7 @@ mark {
 }
 .results-head strong {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 1.1rem;
   display: block;
 }
@@ -660,6 +662,7 @@ mark {
 }
 .why__h {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 1.05rem;
   color: var(--gold-deep);
 }
@@ -921,6 +924,7 @@ mark {
 }
 .kpi__value {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 40px;
   line-height: 1;
   color: var(--ink);
@@ -950,6 +954,7 @@ mark {
 }
 .panel-card__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 18px;
   margin: 0 0 14px;
   color: var(--ink);
@@ -1010,6 +1015,7 @@ mark {
 }
 .quality__n {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 26px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -1089,6 +1095,7 @@ mark {
 }
 .dropzone__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 22px;
   color: var(--ink);
 }
@@ -1224,6 +1231,7 @@ mark {
 }
 .vac-card__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 18px;
   color: var(--ink);
   line-height: 1.2;
@@ -1284,6 +1292,7 @@ mark {
 }
 .vac-card__count {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 22px;
   color: var(--ink);
   line-height: 1;
@@ -1308,6 +1317,7 @@ mark {
 .empty-state__title {
   margin: 8px 0 0;
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 23px;
   color: var(--ink);
 }
@@ -1835,6 +1845,7 @@ mark {
 }
 .settings-row__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 18px;
   color: var(--ink);
 }
@@ -1895,6 +1906,7 @@ mark {
 }
 .stat__n {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 26px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -1915,6 +1927,7 @@ mark {
 }
 .about__name {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 28px;
   margin: 8px 0 0;
   color: var(--ink);
@@ -1995,6 +2008,7 @@ mark {
 }
 .settings2__head h2 {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 26px;
   margin: 0;
   color: var(--ink);
@@ -2023,6 +2037,7 @@ mark {
 }
 .set-hero__big {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 42px;
   line-height: 1;
   color: var(--gold-deep);
@@ -2061,4 +2076,16 @@ mark {
   font-weight: 600;
   font-size: 14px;
   text-align: right;
+}
+
+.set-select {
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }

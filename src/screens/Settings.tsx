@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { wipeAllData, listCandidates } from "../lib/candidates";
+import { wipeAllData, listCandidates, type CandidateRow } from "../lib/candidates";
 import {
   hasMasterPassword,
   setMasterPassword,
@@ -293,18 +293,43 @@ function SecuritySection() {
 }
 
 // ---------- Datos ----------
+const RETENTION_KEY = "zalent-retention-months";
+
+// Fecha de creación (SQLite guarda UTC "YYYY-MM-DD HH:MM:SS").
+function parseCreated(s: string): number {
+  return new Date(s.replace(" ", "T") + "Z").getTime();
+}
+
 function DataSection({ onWiped }: { onWiped: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [wiping, setWiping] = useState(false);
   const [done, setDone] = useState(false);
-  const [count, setCount] = useState<number | null>(null);
+  const [cands, setCands] = useState<CandidateRow[] | null>(null);
   const [size, setSize] = useState<number | null>(null);
+  const [retention, setRetention] = useState<number>(() =>
+    Number(localStorage.getItem(RETENTION_KEY) || "0"),
+  );
 
   useEffect(() => {
-    listCandidates().then((c) => setCount(c.length)).catch(() => {});
+    listCandidates().then(setCands).catch(() => {});
     dataDirSize().then(setSize).catch(() => {});
   }, [done]);
+
+  const count = cands?.length ?? null;
+  const oldCount =
+    retention > 0 && cands
+      ? cands.filter(
+          (c) =>
+            c.created_at &&
+            parseCreated(c.created_at) < Date.now() - retention * 30 * 864e5,
+        ).length
+      : 0;
+
+  function changeRetention(m: number) {
+    setRetention(m);
+    localStorage.setItem(RETENTION_KEY, String(m));
+  }
 
   async function wipe() {
     setWiping(true);
@@ -344,6 +369,41 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
             Abrir carpeta de datos
           </button>
         </div>
+      </section>
+
+      <section className="card">
+        <p className="card__title">Retención de datos</p>
+        <p className="card__intro">
+          El RGPD pide no guardar datos personales más de lo necesario. Marca a
+          partir de cuándo un CV se considera “antiguo” para revisarlo o borrarlo.
+        </p>
+        <div className="set-row">
+          <span className="set-row__label">Avisar de CVs con más de</span>
+          <select
+            className="set-select"
+            value={retention}
+            onChange={(e) => changeRetention(Number(e.target.value))}
+          >
+            <option value={0}>Desactivado</option>
+            <option value={6}>6 meses</option>
+            <option value={12}>12 meses</option>
+            <option value={24}>24 meses</option>
+          </select>
+        </div>
+        {retention > 0 && (
+          <p className="card__hint">
+            {oldCount === 0 ? (
+              <>Ningún candidato supera el límite. 👍</>
+            ) : (
+              <>
+                <strong>{oldCount}</strong>{" "}
+                {oldCount === 1 ? "candidato supera" : "candidatos superan"} el
+                límite. Revísalos en Candidatos (orden “Más antiguos”) y bórralos
+                o anonimízalos si ya no los necesitas.
+              </>
+            )}
+          </p>
+        )}
       </section>
 
       <div className="danger-zone">

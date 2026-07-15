@@ -69,6 +69,20 @@
   width: 106px;
   height: auto;
   filter: drop-shadow(0 0 20px rgba(255, 214, 140, 0.55));
+  transform-origin: bottom center;
+  animation: coco-idle 6s ease-in-out infinite;
+}
+/* Olaz "vivo": respira y da un saltito juguetón cada ciclo. */
+@keyframes coco-idle {
+  0% { transform: translateY(0) rotate(0) scale(1); }
+  18% { transform: translateY(-3px) rotate(-1.5deg) scale(1.015); }
+  36% { transform: translateY(0) rotate(0) scale(1); }
+  46% { transform: translateY(-8px) rotate(1.5deg) scale(1.025); }
+  54% { transform: translateY(0) rotate(0) scale(1); }
+  60% { transform: translateY(-3px) rotate(0) scale(1.01); }
+  66% { transform: translateY(0) rotate(0) scale(1); }
+  84% { transform: translateY(-2px) rotate(1.2deg) scale(1.008); }
+  100% { transform: translateY(0) rotate(0) scale(1); }
 }
 @keyframes beam-pulse {
   0%, 100% { opacity: 0.55; transform: translateX(-50%) scaleY(1); }
@@ -81,6 +95,7 @@
 
 .rail__name {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 28px;
   line-height: 1;
   text-align: center;
@@ -252,6 +267,7 @@
 }
 .screen__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 34px;
   margin: 0;
   color: var(--ink);
@@ -275,6 +291,7 @@
 .coming h3 {
   margin: 14px 0 4px;
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 24px;
   color: var(--ink);
 }
@@ -337,6 +354,7 @@
 }
 .lock__title {
   font-family: var(--font-serif);
+  font-weight: 700;
   font-size: 30px;
   margin: 0;
   color: var(--ink);

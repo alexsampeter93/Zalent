@@ -31,7 +31,9 @@
   --accent-ink: #1c1710;
   --danger: #b4432f;
 
-  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  /* Fuente de titulares (display). Ahora un sans con carácter (Archivo),
+     para un aire de producto real y no de plantilla generada. */
+  --font-serif: "Archivo", "Segoe UI", system-ui, sans-serif;
   --font-sans: "Work Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
 
@@ -112,8 +114,8 @@ h2,
 h3,
 .serif {
   font-family: var(--font-serif);
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 @media (prefers-reduced-motion: reduce) {
