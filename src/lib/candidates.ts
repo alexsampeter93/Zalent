@@ -97,6 +97,7 @@ export async function deleteCandidate(id: number): Promise<void> {
   await db.execute("DELETE FROM candidate_vacancy WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM candidate_chunks WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM candidate_vectors WHERE candidate_id = $1", [id]);
+  await db.execute("DELETE FROM feedback WHERE candidate_id = $1", [id]);
   await db.execute("DELETE FROM candidates WHERE id = $1", [id]);
 
   // El archivo, al final (best-effort; que un fallo aquí no impida el borrado).
@@ -115,6 +116,7 @@ export async function cleanupOrphans(): Promise<void> {
     "candidate_vacancy",
     "candidate_chunks",
     "candidate_vectors",
+    "feedback",
   ];
   for (const t of tables) {
     await db.execute(

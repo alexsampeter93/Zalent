@@ -169,6 +169,18 @@ pub fn run() {
             CREATE INDEX idx_tags_tag ON candidate_tags(tag);
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 9,
+        description: "feedback",
+        sql: "
+            CREATE TABLE feedback (
+                candidate_id INTEGER PRIMARY KEY,
+                vote INTEGER NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

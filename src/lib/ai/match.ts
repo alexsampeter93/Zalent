@@ -1,6 +1,7 @@
 import { getDb } from "../db";
 import { embed, cosine } from "./embeddings";
 import { norm, STOPWORDS } from "./search";
+import { computePreference, PREF_WEIGHT } from "./preference";
 
 const MODEL_TAG = "minilm-multilingual-v1";
 const SEM_FLOOR = 0.3;
@@ -56,12 +57,36 @@ export async function matchOffer(
     [MODEL_TAG],
   );
   const byCand = new Map<number, Chunk[]>();
+  const repSum = new Map<number, { sum: Float64Array; n: number }>();
   for (const r of chunkRows) {
-    const cos = cosine(q, Float32Array.from(JSON.parse(r.vector) as number[]));
+    const vec = Float32Array.from(JSON.parse(r.vector) as number[]);
+    const cos = cosine(q, vec);
     const arr = byCand.get(r.candidate_id) ?? [];
     arr.push({ text: r.text, ntext: norm(r.text), cos });
     byCand.set(r.candidate_id, arr);
+    let acc = repSum.get(r.candidate_id);
+    if (!acc) {
+      acc = { sum: new Float64Array(vec.length), n: 0 };
+      repSum.set(r.candidate_id, acc);
+    }
+    for (let i = 0; i < vec.length; i++) acc.sum[i] += vec[i];
+    acc.n++;
   }
+
+  // Representación media por candidato + dirección de preferencia (👍/👎).
+  const repByCand = new Map<number, Float32Array>();
+  for (const [id, acc] of repSum) {
+    const rep = new Float32Array(acc.sum.length);
+    let nrm = 0;
+    for (let i = 0; i < rep.length; i++) {
+      rep[i] = acc.sum[i] / acc.n;
+      nrm += rep[i] * rep[i];
+    }
+    nrm = Math.sqrt(nrm);
+    if (nrm > 1e-8) for (let i = 0; i < rep.length; i++) rep[i] /= nrm;
+    repByCand.set(id, rep);
+  }
+  const pref = await computePreference(repByCand);
 
   const cands = await db.select<
     {
@@ -105,7 +130,10 @@ export async function matchOffer(
 
     // Encaje: si hay requisitos, mezcla significado + cobertura; si no, solo
     // significado. (Los umbrales/pesos son ajustables.)
-    const fit = reqs.length > 0 ? 0.6 * calibSem + 0.4 * coverage : calibSem;
+    const rep = repByCand.get(c.id);
+    const boost = pref && rep ? PREF_WEIGHT * cosine(rep, pref) : 0;
+    const base = reqs.length > 0 ? 0.6 * calibSem + 0.4 * coverage : calibSem;
+    const fit = Math.min(1, Math.max(0, base + boost));
 
     // Evidencia: preferimos un fragmento que contenga algún requisito cumplido.
     let evidenceChunk = semBest;

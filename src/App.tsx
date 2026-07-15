@@ -14,6 +14,7 @@ import {
   type CandidateDetail,
 } from "./lib/candidates";
 import { suggestTags } from "./lib/ai/classify";
+import { setVote, listVotes, type Vote } from "./lib/feedback";
 import {
   addNote,
   listNotes,
@@ -145,6 +146,7 @@ function App() {
   const [vacancyList, setVacancyList] = useState<{ id: number; title: string }[]>([]);
   const [membership, setMembership] = useState<Map<number, Set<number>>>(new Map());
   const [notedIds, setNotedIds] = useState<Set<number>>(new Set());
+  const [votes, setVotes] = useState<Map<number, number>>(new Map());
   // Selección múltiple y acciones en lote
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -250,14 +252,16 @@ function App() {
   // Trae las ofertas (para el desplegable) y el mapa candidato→ofertas.
   async function refreshFilters() {
     try {
-      const [vs, ms, allT, tagAssigns, noted] = await Promise.all([
+      const [vs, ms, allT, tagAssigns, noted, voteRows] = await Promise.all([
         listVacancies(),
         listAllMemberships(),
         listAllTags(),
         listAllTagAssignments(),
         listCandidatesWithNotes(),
+        listVotes(),
       ]);
       setNotedIds(new Set(noted));
+      setVotes(new Map(voteRows.map((v) => [v.candidate_id, v.vote])));
       setVacancyList(vs.map((v) => ({ id: v.id, title: v.title })));
       const map = new Map<number, Set<number>>();
       for (const m of ms) {
@@ -590,6 +594,25 @@ function App() {
       await refreshFilters();
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  // Voto 👍/👎 del candidato abierto (pulsar el mismo voto lo quita).
+  async function onVote(vote: Vote) {
+    if (selectedId == null) return;
+    const id = selectedId;
+    const next: Vote | null = votes.get(id) === vote ? null : vote;
+    setVotes((m) => {
+      const n = new Map(m);
+      if (next === null) n.delete(id);
+      else n.set(id, next);
+      return n;
+    });
+    try {
+      await setVote(id, next);
+    } catch (e) {
+      console.error(e);
+      await refreshFilters();
     }
   }
 
@@ -1105,6 +1128,34 @@ function App() {
                             ))}
                           </ul>
                         )}
+                      </div>
+                    )}
+
+                    {!editing && (
+                      <div className="vote-box">
+                        <span className="vote-box__label">¿Encaja este perfil?</span>
+                        <div className="vote-btns">
+                          <button
+                            className={
+                              "vote-btn vote-up" +
+                              (votes.get(selectedId ?? -1) === 1 ? " is-on" : "")
+                            }
+                            onClick={() => onVote(1)}
+                            title="Me encaja (subirá perfiles parecidos)"
+                          >
+                            👍
+                          </button>
+                          <button
+                            className={
+                              "vote-btn vote-down" +
+                              (votes.get(selectedId ?? -1) === -1 ? " is-on" : "")
+                            }
+                            onClick={() => onVote(-1)}
+                            title="No me encaja (bajará perfiles parecidos)"
+                          >
+                            👎
+                          </button>
+                        </div>
                       </div>
                     )}
 
