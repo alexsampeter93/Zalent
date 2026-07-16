@@ -1112,6 +1112,24 @@ mark {
   opacity: 0.5;
 }
 
+.ai-download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  max-width: 460px;
+  text-align: center;
+}
+.ai-download__msg {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.ai-download .import-progress__bar {
+  width: 100%;
+}
+
 .ai-import-toggle {
   display: flex;
   align-items: flex-start;

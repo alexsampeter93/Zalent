@@ -14,6 +14,17 @@ edition = "2021"
 name = "zalent_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Perfil de RELEASE. Sin esto, el .exe salía con 162 MB: Cargo por defecto
+# mete los símbolos de depuración y no optimiza el tamaño. Importa más de lo
+# que parece: el CAB de un instalador MSI tiene un techo DURO de 2 GB, y con
+# el modelo empotrado (1,8 GB) nos pasábamos por apenas 20 MB.
+[profile.release]
+strip = true      # fuera símbolos de depuración (el grueso de los 162 MB)
+lto = true        # optimización entre módulos: menos código duplicado
+opt-level = "s"   # optimizar para TAMAÑO, no para velocidad bruta
+codegen-units = 1 # menos paralelismo al compilar, pero mejor optimización
+panic = "abort"   # sin código de desenrollado de pila (no lo usamos)
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

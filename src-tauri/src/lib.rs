@@ -3,7 +3,7 @@ use std::fs;
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 use aes_gcm::aead::{Aead, KeyInit};
@@ -423,6 +423,77 @@ pub struct OllamaExtractResult {
     error: String,
 }
 
+// Progreso de la descarga del modelo, que se emite a la interfaz mientras baja.
+#[derive(Serialize, Clone)]
+pub struct PullProgress {
+    status: String,
+    completed: u64,
+    total: u64,
+    done: bool,
+    error: String,
+}
+
+// Descarga el modelo (~4,7 GB) la primera vez. Ollama devuelve el progreso
+// como un flujo de líneas JSON, así que las leemos según llegan y las
+// reemitimos a la interfaz — si esperáramos al final, el usuario vería la
+// app congelada varios minutos sin saber si funciona.
+#[tauri::command]
+async fn ollama_pull(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(7200)) // 4,7 GB pueden tardar
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut resp = client
+        .post(format!("{OLLAMA_URL}/api/pull"))
+        .json(&serde_json::json!({ "model": model, "stream": true }))
+        .send()
+        .await
+        .map_err(|e| format!("no se pudo iniciar la descarga: {e}"))?;
+
+    let mut buf = String::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        // El flujo puede cortar una línea por la mitad: procesamos solo las
+        // líneas COMPLETAS y dejamos el resto en el buffer para la siguiente.
+        while let Some(nl) = buf.find('\n') {
+            let line: String = buf.drain(..=nl).collect();
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(err) = v["error"].as_str() {
+                    let _ = app.emit(
+                        "ollama-pull",
+                        PullProgress {
+                            status: String::new(),
+                            completed: 0,
+                            total: 0,
+                            done: true,
+                            error: err.to_string(),
+                        },
+                    );
+                    return Err(err.to_string());
+                }
+                let status = v["status"].as_str().unwrap_or("").to_string();
+                let done = status == "success";
+                let _ = app.emit(
+                    "ollama-pull",
+                    PullProgress {
+                        status,
+                        completed: v["completed"].as_u64().unwrap_or(0),
+                        total: v["total"].as_u64().unwrap_or(0),
+                        done,
+                        error: String::new(),
+                    },
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 // El ESQUEMA. Ollama acepta un JSON Schema en `format` y OBLIGA al modelo a
 // cumplirlo: ya no puede devolver `fullName` en vez de `full_name`, ni
 // saltarse campos, ni envolverlo en ```json. El formato deja de ser un ruego
@@ -666,20 +737,21 @@ pub fn run() {
             let tmp = std::env::temp_dir().join("zalent_view");
             let _ = fs::remove_dir_all(&tmp);
 
-            // El modelo (~4,4 GB) viaja EMPOTRADO también (ver
-            // src-tauri/binaries/models/ + "resources" en tauri.conf.json),
-            // en el mismo formato en que Ollama lo guarda (manifests+blobs
-            // con huella SHA256 — como las capas de Docker). Así el sidecar
-            // NUNCA toca el ~/.ollama del usuario ni depende de tener
-            // internet la primera vez: todo lo que necesita ya está dentro
-            // del propio instalador de Zalent.
-            let models_dir = app
-                .path()
-                .resolve("models", tauri::path::BaseDirectory::Resource)
-                .ok();
-            match &models_dir {
-                Some(p) => eprintln!("[zalent] modelos empotrados en: {}", p.display()),
-                None => eprintln!("[zalent] no se pudo resolver la carpeta de modelos empotrados"),
+            // El modelo NO viaja en el instalador: se descarga la primera vez
+            // que el usuario enciende la IA (~4,7 GB). Motivo: ni MSI ni NSIS
+            // admiten ficheros de más de 2 GB, y el CAB de un MSI tiene un
+            // techo total de 2 GB — el modelo bueno (7B) pesa 4,68 GB en un
+            // solo blob. Es también lo que hacen LM Studio, GPT4All y el
+            // propio Ollama. Ver Diario, entrada 33.
+            //
+            // Va en la carpeta de datos de la app (escribible), NO en los
+            // recursos junto al .exe: eso vive en Archivos de programa, que
+            // es de solo lectura para un usuario normal — ahí no se podría
+            // descargar nada. Sigue estando aislado del ~/.ollama del sistema.
+            let models_dir = app.path().app_data_dir().ok().map(|d| d.join("models"));
+            if let Some(p) = &models_dir {
+                let _ = fs::create_dir_all(p);
+                eprintln!("[zalent] modelos en: {}", p.display());
             }
 
             // Arrancamos Ollama como sidecar: viaja EMPOTRADO en el propio
@@ -690,7 +762,18 @@ pub fn run() {
             // "la IA mejora el producto, no es el producto").
             match app.shell().sidecar("ollama") {
                 Ok(cmd) => {
-                    let mut cmd = cmd.arg("serve").env("OLLAMA_HOST", OLLAMA_HOST);
+                    let mut cmd = cmd
+                        .arg("serve")
+                        .env("OLLAMA_HOST", OLLAMA_HOST)
+                        // Ollama trae funciones de NUBE activadas por defecto: los
+                        // modelos con sufijo `-cloud` se ejecutan en sus servidores.
+                        // Nosotros solo pedimos modelos locales, así que hoy no hay
+                        // fuga — pero la promesa de Zalent ("nada sale de tu equipo")
+                        // no puede depender de que no los pidamos. Aquí se apaga la
+                        // nube de raíz: aunque alguien pidiera un modelo `-cloud`,
+                        // no habría a dónde enviarlo. Mismo principio que el
+                        // validador de anclaje: no te fíes, impídelo.
+                        .env("OLLAMA_NO_CLOUD", "1");
                     if let Some(p) = &models_dir {
                         cmd = cmd.env("OLLAMA_MODELS", p.to_string_lossy().to_string());
                     }
@@ -725,7 +808,8 @@ pub fn run() {
             crypto_selftest,
             encrypt_all_cvs,
             ollama_status,
-            ollama_extract
+            ollama_extract,
+            ollama_pull
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

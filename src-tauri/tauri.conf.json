@@ -34,8 +34,7 @@
     ],
     "externalBin": ["binaries/ollama"],
     "resources": {
-      "binaries/lib/ollama/*": "lib/ollama/",
-      "binaries/models": "models"
+      "binaries/lib/ollama/*": "lib/ollama/"
     }
   }
 }

@@ -12,7 +12,7 @@ import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
 import { reindexAll } from "../lib/ai/search";
 import { clearAllVotes } from "../lib/feedback";
-import { ollamaStatus, ollamaExtract, type OllamaResult } from "../lib/ai/ollama";
+import { ollamaStatus, ollamaExtract, AI_MODEL, type OllamaResult } from "../lib/ai/ollama";
 import { getDb } from "../lib/db";
 
 type Section =
@@ -529,7 +529,7 @@ function SearchAiSection() {
   const [llmStep, setLlmStep] = useState("");
   const [llmReport, setLlmReport] = useState<OllamaResult | null>(null);
   const [status, setStatus] = useState<{ running: boolean; models: string[]; error: string } | null>(null);
-  const [model, setModel] = useState("qwen2.5:7b");
+  const [model, setModel] = useState(AI_MODEL);
 
   async function checkStatus() {
     setStatus(await ollamaStatus());

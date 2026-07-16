@@ -43,11 +43,13 @@ import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
 import { LockScreen } from "./screens/LockScreen";
 import { hasMasterPassword } from "./lib/lock";
-import { ollamaStatus, ollamaExtract } from "./lib/ai/ollama";
-
-// El modelo que trae Zalent empotrado (ver src-tauri/binaries/ y el sidecar
-// que arranca en lib.rs). Un solo sitio: si cambia el modelo, cambia aquí.
-const AI_MODEL = "qwen2.5:7b";
+import {
+  ollamaExtract,
+  isModelReady,
+  pullModel,
+  AI_MODEL,
+  type PullProgress,
+} from "./lib/ai/ollama";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
@@ -143,11 +145,14 @@ function App() {
   const [showBatchMsg, setShowBatchMsg] = useState(false);
   const [importReminder, setImportReminder] = useState(false);
   // IA en la importación: opcional, apagada por defecto (es lenta: ~30-40s
-  // por CV). Solo se ofrece si el sidecar de Ollama responde de verdad — si
-  // no, la casilla ni aparece y el resto de Zalent sigue funcionando igual
-  // (principio: "la IA mejora el producto, no es el producto").
+  // por CV). El modelo NO viene en el instalador — se descarga la primera
+  // vez que el usuario la enciende. Si algo falla, el resto de Zalent sigue
+  // igual ("la IA mejora el producto, no es el producto").
   const [aiAvailable, setAiAvailable] = useState(false);
   const [useAiImport, setUseAiImport] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullPct, setPullPct] = useState(0);
+  const [pullMsg, setPullMsg] = useState("");
   const [showCandReminder, setShowCandReminder] = useState(false);
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -235,15 +240,45 @@ function App() {
     return () => clearTimeout(t);
   }, [showBatchMsg]);
 
-  // ¿Hay IA disponible para enriquecer la importación? Se comprueba una vez
-  // al entrar en Importar: si el sidecar no responde (o no tiene el modelo),
-  // la casilla de IA simplemente no aparece — nunca bloquea la importación.
+  // ¿Está el modelo ya descargado? Se comprueba al entrar en Importar.
   useEffect(() => {
     if (screen !== "importar") return;
-    ollamaStatus()
-      .then((s) => setAiAvailable(s.running && s.models.includes(AI_MODEL)))
-      .catch(() => setAiAvailable(false));
+    isModelReady().then(setAiAvailable);
   }, [screen]);
+
+  // Descarga el modelo la primera vez (~4,7 GB). El progreso llega desde Rust
+  // por eventos; sin eso el usuario vería la app parada varios minutos.
+  async function downloadModel() {
+    setPulling(true);
+    setPullPct(0);
+    setPullMsg("Conectando…");
+    try {
+      await pullModel((p: PullProgress) => {
+        if (p.error) {
+          setPullMsg("Error: " + p.error);
+          return;
+        }
+        if (p.total > 0) {
+          setPullPct(Math.round((p.completed / p.total) * 100));
+          const gb = (n: number) => (n / 1073741824).toFixed(1);
+          setPullMsg(`Descargando… ${gb(p.completed)} / ${gb(p.total)} GB`);
+        } else {
+          setPullMsg(p.status || "Preparando…");
+        }
+      });
+      const ready = await isModelReady();
+      setAiAvailable(ready);
+      if (ready) {
+        setUseAiImport(true); // si se ha molestado en bajarlo, lo quiere usar
+        setPullMsg("");
+      }
+    } catch (e) {
+      console.error(e);
+      setPullMsg("No se pudo descargar el modelo. ¿Hay conexión?");
+    } finally {
+      setPulling(false);
+    }
+  }
 
   // El aviso "sin clasificar" solo vive en Importar, tras importar.
   useEffect(() => {
@@ -1474,7 +1509,7 @@ function App() {
             </p>
           </div>
 
-          {aiAvailable && (
+          {aiAvailable ? (
             <label className="ai-import-toggle">
               <input
                 type="checkbox"
@@ -1487,6 +1522,32 @@ function App() {
                 estudios y skills que las reglas se dejan)
               </span>
             </label>
+          ) : (
+            <div className="ai-download">
+              {pulling ? (
+                <>
+                  <div className="import-progress__bar">
+                    <div
+                      className="import-progress__fill"
+                      style={{ width: `${pullPct}%` }}
+                    />
+                  </div>
+                  <span className="ai-download__msg">{pullMsg}</span>
+                </>
+              ) : (
+                <>
+                  <span className="ai-download__msg">
+                    ¿Quieres que la IA rellene las fichas (puesto, estudios,
+                    skills)? Hay que descargar el modelo una vez: <strong>4,7 GB</strong>.
+                    Se queda en tu equipo y funciona sin internet a partir de entonces.
+                  </span>
+                  <button className="btn-sm" onClick={downloadModel} disabled={batchRunning}>
+                    Descargar modelo de IA
+                  </button>
+                  {pullMsg && <span className="ai-download__msg">{pullMsg}</span>}
+                </>
+              )}
+            </div>
           )}
 
           {/* Zona de arrastre principal (lote) */}
