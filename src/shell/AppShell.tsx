@@ -2,6 +2,19 @@ import { type ReactNode } from "react";
 import "./shell.css";
 import { useThemeMode, resolvedTheme } from "../lib/theme";
 
+// El Olaz del menú es una imagen fija (con vida por CSS: respira + saltito,
+// ver @keyframes coco-idle en shell.css) hasta que haya frames de
+// parpadeo/saludo con transparencia real. Se intentó animar por sprites dos
+// veces (Diario, entradas pendientes): la primera tanda tenía el fondo
+// "falso transparente" (una foto de un patrón de cuadros, no alfa de
+// verdad); la segunda tanda SÍ traía alfa real pero con el patrón de
+// cuadros grabado dentro del propio canal alfa (parcialmente transparente
+// en rejilla) — se detectó componiendo cada frame sobre un fondo OSCURO
+// como el del menú real, que es donde se hacía visible; sobre fondo blanco
+// parecía correcto. Ninguna de las dos tandas era recuperable con recorte
+// de color. Si se retoma, la comprobación de referencia es esa: componer
+// sobre oscuro antes de dar un frame por bueno.
+
 export type Screen =
   | "candidatos"
   | "importar"

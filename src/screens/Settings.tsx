@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { wipeAllData, listCandidates, type CandidateRow } from "../lib/candidates";
+import { loadDemoData } from "../lib/demoData";
 import {
   hasMasterPassword,
   setMasterPassword,
@@ -307,6 +308,8 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
   const [confirmText, setConfirmText] = useState("");
   const [wiping, setWiping] = useState(false);
   const [done, setDone] = useState(false);
+  const [loadingDemo, setLoadingDemo] = useState(false);
+  const [demoMsg, setDemoMsg] = useState("");
   const [cands, setCands] = useState<CandidateRow[] | null>(null);
   const [size, setSize] = useState<number | null>(null);
   const [retention, setRetention] = useState<number>(() =>
@@ -331,6 +334,21 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
   function changeRetention(m: number) {
     setRetention(m);
     localStorage.setItem(RETENTION_KEY, String(m));
+  }
+
+  async function loadDemo() {
+    setLoadingDemo(true);
+    setDemoMsg("");
+    try {
+      const r = await loadDemoData();
+      setDemoMsg(`✅ Cargados ${r.candidates} candidatos y ${r.vacancies} vacantes de ejemplo.`);
+      onWiped(); // mismo callback de "refresca todo": aquí se reutiliza para "los datos cambiaron"
+    } catch (e) {
+      console.error(e);
+      setDemoMsg("Error al cargar los datos de ejemplo.");
+    } finally {
+      setLoadingDemo(false);
+    }
   }
 
   async function wipe() {
@@ -406,6 +424,21 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
             )}
           </p>
         )}
+      </section>
+
+      <section className="card">
+        <p className="card__title">Datos de ejemplo</p>
+        <p className="card__intro">
+          Añade 14 candidatos y 3 vacantes ficticias, con el pipeline ya
+          poblado, para poder enseñar Zalent sin usar CVs reales. Se pueden
+          borrar después con “Borrar todos los datos”, más abajo.
+        </p>
+        <div className="actions">
+          <button className="btn-secondary" onClick={loadDemo} disabled={loadingDemo}>
+            {loadingDemo ? "Cargando…" : "Cargar datos de ejemplo"}
+          </button>
+        </div>
+        {demoMsg && <p className="db-ok">{demoMsg}</p>}
       </section>
 
       <div className="danger-zone">
