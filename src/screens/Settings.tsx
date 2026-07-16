@@ -11,7 +11,7 @@ import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
 import { reindexAll } from "../lib/ai/search";
 import { clearAllVotes } from "../lib/feedback";
-import { ollamaStatus, ollamaExtract, type OllamaResult } from "../lib/ai/ollama-spike";
+import { ollamaStatus, ollamaExtract, type OllamaResult } from "../lib/ai/ollama";
 import { getDb } from "../lib/db";
 
 type Section =

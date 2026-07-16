@@ -43,7 +43,7 @@ import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
 import { LockScreen } from "./screens/LockScreen";
 import { hasMasterPassword } from "./lib/lock";
-import { ollamaStatus, ollamaExtract } from "./lib/ai/ollama-spike";
+import { ollamaStatus, ollamaExtract } from "./lib/ai/ollama";
 
 // El modelo que trae Zalent empotrado (ver src-tauri/binaries/ y el sidecar
 // que arranca en lib.rs). Un solo sitio: si cambia el modelo, cambia aquí.

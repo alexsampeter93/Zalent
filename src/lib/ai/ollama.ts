@@ -1,7 +1,7 @@
-// SPIKE (temporal): puente con Ollama.
+// Puente con Ollama (el sidecar de IA generativa local).
 //
 // Fíjate en lo poco que hay aquí: la interfaz NO sabe qué es Ollama, ni que
-// hay HTTP, ni que existe el puerto 11434. Solo invoca dos comandos. Toda la
+// hay HTTP, ni que existe el puerto 11435. Solo invoca dos comandos. Toda la
 // suciedad del mundo exterior vive en Rust (src-tauri/src/lib.rs).
 //
 // Eso es el principio hexagonal en la práctica: si mañana cambiamos Ollama
