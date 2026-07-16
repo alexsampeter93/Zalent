@@ -11,6 +11,10 @@
       "allow": [{ "path": "**" }]
     },
     "sql:default",
-    "sql:allow-execute"
+    "sql:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/ollama", "cmd": "binaries/ollama", "sidecar": true }]
+    }
   ]
 }

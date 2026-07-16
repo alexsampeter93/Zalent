@@ -43,6 +43,11 @@ import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
 import { LockScreen } from "./screens/LockScreen";
 import { hasMasterPassword } from "./lib/lock";
+import { ollamaStatus, ollamaExtract } from "./lib/ai/ollama-spike";
+
+// El modelo que trae Zalent empotrado (ver src-tauri/binaries/ y el sidecar
+// que arranca en lib.rs). Un solo sitio: si cambia el modelo, cambia aquí.
+const AI_MODEL = "qwen2.5:7b";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
@@ -137,6 +142,12 @@ function App() {
   const [batchKey, setBatchKey] = useState(0);
   const [showBatchMsg, setShowBatchMsg] = useState(false);
   const [importReminder, setImportReminder] = useState(false);
+  // IA en la importación: opcional, apagada por defecto (es lenta: ~30-40s
+  // por CV). Solo se ofrece si el sidecar de Ollama responde de verdad — si
+  // no, la casilla ni aparece y el resto de Zalent sigue funcionando igual
+  // (principio: "la IA mejora el producto, no es el producto").
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [useAiImport, setUseAiImport] = useState(false);
   const [showCandReminder, setShowCandReminder] = useState(false);
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -223,6 +234,16 @@ function App() {
     const t = setTimeout(() => setShowBatchMsg(false), 4500);
     return () => clearTimeout(t);
   }, [showBatchMsg]);
+
+  // ¿Hay IA disponible para enriquecer la importación? Se comprueba una vez
+  // al entrar en Importar: si el sidecar no responde (o no tiene el modelo),
+  // la casilla de IA simplemente no aparece — nunca bloquea la importación.
+  useEffect(() => {
+    if (screen !== "importar") return;
+    ollamaStatus()
+      .then((s) => setAiAvailable(s.running && s.models.includes(AI_MODEL)))
+      .catch(() => setAiAvailable(false));
+  }, [screen]);
 
   // El aviso "sin clasificar" solo vive en Importar, tras importar.
   useEffect(() => {
@@ -386,6 +407,37 @@ function App() {
       try {
         const text = await extractText(file);
         const g = guessFields(text, file.name);
+
+        // Base: las reglas de siempre. Fiables para email/teléfono/enlaces,
+        // flojas para puesto/estudios/skills (el techo que documentamos).
+        let fullName = g.full_name;
+        let location = g.location;
+        let headline = ""; // las reglas nunca tuvieron este campo
+        let education = g.education;
+        let skills = splitList(g.skills);
+        let languages = splitList(g.languages);
+
+        // IA opcional: solo mejora los campos de LENGUAJE (donde las reglas
+        // fallan). Los años de experiencia NUNCA vienen del LLM — eso es
+        // aritmética, y ya la calcula detectYears() de forma determinista
+        // (ver Diario, entrada 29.4). Si la IA falla, seguimos con las
+        // reglas sin más: degradar con elegancia, nunca romper la importación.
+        if (useAiImport) {
+          try {
+            const ai = await ollamaExtract(AI_MODEL, text);
+            if (ai.fields) {
+              if (ai.fields.full_name) fullName = ai.fields.full_name;
+              if (ai.fields.location) location = ai.fields.location;
+              if (ai.fields.last_position) headline = ai.fields.last_position;
+              if (ai.fields.education) education = ai.fields.education;
+              if (ai.fields.skills.length > 0) skills = ai.fields.skills;
+              if (ai.fields.languages.length > 0) languages = ai.fields.languages;
+            }
+          } catch (err) {
+            console.error("ollamaExtract:", err);
+          }
+        }
+
         let filePath: string | null = null;
         try {
           filePath = await saveCvFile(file);
@@ -394,13 +446,13 @@ function App() {
         }
         const gy = Number(g.years_experience);
         await saveCandidate({
-          full_name: g.full_name, email: g.email, phone: g.phone,
-          location: g.location, headline: "",
+          full_name: fullName, email: g.email, phone: g.phone,
+          location, headline,
           years_experience: g.years_experience && !Number.isNaN(gy) ? gy : null,
-          education: g.education,
+          education,
           links: g.links, raw_text: text, source_file: file.name,
           file_path: filePath,
-          skills: splitList(g.skills), languages: splitList(g.languages),
+          skills, languages,
         });
       } catch (err) {
         errors.push({ name: file.name, error: String(err) });
@@ -1421,6 +1473,21 @@ function App() {
               Arrastra tus CVs y se convierten en fichas. Todo local, nada sale a la nube.
             </p>
           </div>
+
+          {aiAvailable && (
+            <label className="ai-import-toggle">
+              <input
+                type="checkbox"
+                checked={useAiImport}
+                onChange={(e) => setUseAiImport(e.target.checked)}
+                disabled={batchRunning}
+              />
+              <span>
+                Rellenar con IA (más lento — ~30-40 s por CV, pero saca puesto,
+                estudios y skills que las reglas se dejan)
+              </span>
+            </label>
+          )}
 
           {/* Zona de arrastre principal (lote) */}
           <label

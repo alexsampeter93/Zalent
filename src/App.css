@@ -1112,6 +1112,22 @@ mark {
   opacity: 0.5;
 }
 
+.ai-import-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  align-self: center;
+  max-width: 460px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ai-import-toggle input {
+  margin-top: 2px;
+  accent-color: var(--gold-deep);
+  cursor: pointer;
+}
+
 .folder-btn {
   align-self: center;
   background: transparent;

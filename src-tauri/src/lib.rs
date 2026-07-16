@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::fs;
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use tauri::{Manager, State};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
@@ -9,6 +11,12 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
+
+// El proceso hijo de Ollama (el sidecar). Se guarda aquí para poder matarlo
+// al cerrar Zalent: sin esto, quedaría corriendo de fondo como un zombi.
+struct OllamaSidecar(Mutex<Option<CommandChild>>);
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -361,7 +369,11 @@ fn encrypt_all_cvs(app: tauri::AppHandle, state: State<KeyState>) -> Result<usiz
 // en español. La velocidad aquí no decide: sabemos que irá lento por CPU.
 // ============================================================================
 
-const OLLAMA_URL: &str = "http://127.0.0.1:11434";
+// Puerto PROPIO, distinto del 11434 por defecto de Ollama: así el sidecar de
+// Zalent nunca choca con una instalación de Ollama que el usuario ya tuviera
+// para otra cosa. Es "el Ollama de Zalent", no "el Ollama del sistema".
+const OLLAMA_URL: &str = "http://127.0.0.1:11435";
+const OLLAMA_HOST: &str = "127.0.0.1:11435";
 
 #[derive(Serialize)]
 pub struct OllamaStatus {
@@ -413,22 +425,24 @@ pub struct OllamaExtractResult {
 // cumplirlo: ya no puede devolver `fullName` en vez de `full_name`, ni
 // saltarse campos, ni envolverlo en ```json. El formato deja de ser un ruego
 // y pasa a ser una garantía. (Con transformers.js no teníamos esto.)
+//
+// OJO: `years_experience` NO está aquí a propósito (Diario, entrada 29.4).
+// Es el único campo que exige CALCULAR (sumar periodos), no copiar, y ahí el
+// modelo osciló entre ejecuciones idénticas. Ese cálculo ya lo hace
+// `detectYears()` en TypeScript, determinista y gratis — no tiene sentido
+// pedirle a un LLM que adivine una suma que el código ya hace bien.
 fn extraction_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "full_name":        { "type": ["string", "null"] },
-            "location":         { "type": ["string", "null"] },
-            "last_position":    { "type": ["string", "null"] },
-            "years_experience": { "type": ["integer", "null"] },
-            "education":        { "type": ["string", "null"] },
-            "skills":           { "type": "array", "items": { "type": "string" } },
-            "languages":        { "type": "array", "items": { "type": "string" } }
+            "full_name":     { "type": ["string", "null"] },
+            "location":      { "type": ["string", "null"] },
+            "last_position": { "type": ["string", "null"] },
+            "education":     { "type": ["string", "null"] },
+            "skills":        { "type": "array", "items": { "type": "string" } },
+            "languages":     { "type": "array", "items": { "type": "string" } }
         },
-        "required": [
-            "full_name", "location", "last_position",
-            "years_experience", "education", "skills", "languages"
-        ]
+        "required": ["full_name", "location", "last_position", "education", "skills", "languages"]
     })
 }
 
@@ -438,8 +452,7 @@ async fn ollama_extract(model: String, cv_text: String) -> OllamaExtractResult {
         "Extrae los datos de este CV.\n\n\
          REGLAS:\n\
          - Si un dato NO aparece en el CV, pon null. No lo inventes ni lo deduzcas.\n\
-         - Copia literalmente lo que pone el CV.\n\
-         - years_experience: años de experiencia LABORAL (no los de estudios).\n\n\
+         - Copia literalmente lo que pone el CV.\n\n\
          CV:\n{}",
         // Recortamos: el contexto cuesta tiempo y los CVs largos no aportan más.
         cv_text.chars().take(6000).collect::<String>()
@@ -644,11 +657,28 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(KeyState::default())
-        .setup(|_app| {
+        .manage(OllamaSidecar(Mutex::new(None)))
+        .setup(|app| {
             // Al arrancar, borramos las copias temporales EN CLARO que se
             // generan al ver un CV cifrado (que no queden en el disco).
             let tmp = std::env::temp_dir().join("zalent_view");
             let _ = fs::remove_dir_all(&tmp);
+
+            // Arrancamos Ollama como sidecar: viaja EMPOTRADO en el propio
+            // instalador de Zalent (ver src-tauri/binaries/), así que el
+            // usuario nunca instala nada aparte ni abre una terminal. Si
+            // falla el arranque no rompemos la app: la IA queda "no
+            // disponible" y el resto de Zalent sigue funcionando (principio
+            // "la IA mejora el producto, no es el producto").
+            match app.shell().sidecar("ollama") {
+                Ok(cmd) => match cmd.arg("serve").env("OLLAMA_HOST", OLLAMA_HOST).spawn() {
+                    Ok((_rx, child)) => {
+                        app.state::<OllamaSidecar>().0.lock().unwrap().replace(child);
+                    }
+                    Err(e) => eprintln!("No se pudo arrancar el sidecar de Ollama: {e}"),
+                },
+                Err(e) => eprintln!("No se pudo resolver el sidecar de Ollama: {e}"),
+            }
             Ok(())
         })
         .plugin(
@@ -657,6 +687,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             save_cv,
@@ -673,6 +704,28 @@ pub fn run() {
             ollama_status,
             ollama_extract
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Al cerrar Zalent, matamos el sidecar. Sin esto, Ollama se
+            // quedaría corriendo de fondo indefinidamente como un proceso
+            // zombi cada vez que el usuario cierra la app.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(child) = app_handle.state::<OllamaSidecar>().0.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+                // `child.kill()` solo mata al proceso `ollama.exe` que lanzamos
+                // nosotros — NO a `llama-server.exe`, que es un hijo que Ollama
+                // lanza por su cuenta para cargar el modelo (verificado: sin
+                // esto se queda corriendo de fondo con el modelo entero en RAM).
+                // Lo cazamos aparte, por nombre, como red de seguridad.
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/IM", "llama-server.exe", "/T"])
+                        .creation_flags(0x08000000) // CREATE_NO_WINDOW: sin parpadeo de consola al cerrar
+                        .output();
+                }
+            }
+        });
 }
