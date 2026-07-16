@@ -11,12 +11,14 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
-use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
-// El proceso hijo de Ollama (el sidecar). Se guarda aquí para poder matarlo
-// al cerrar Zalent: sin esto, quedaría corriendo de fondo como un zombi.
-struct OllamaSidecar(Mutex<Option<CommandChild>>);
+// El PID del sidecar de Ollama. Guardamos solo el número de proceso, no el
+// `CommandChild` — verificado que `child.kill()` puede COLGARSE (esperamos
+// >30s sin que muriera) mientras que matar por PID con `taskkill /T` es
+// instantáneo y además mata también a los hijos que Ollama lanza por su
+// cuenta (`llama-server.exe`, el motor real). Ver Diario, entrada 30.
+struct OllamaSidecar(Mutex<Option<u32>>);
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -664,6 +666,22 @@ pub fn run() {
             let tmp = std::env::temp_dir().join("zalent_view");
             let _ = fs::remove_dir_all(&tmp);
 
+            // El modelo (~4,4 GB) viaja EMPOTRADO también (ver
+            // src-tauri/binaries/models/ + "resources" en tauri.conf.json),
+            // en el mismo formato en que Ollama lo guarda (manifests+blobs
+            // con huella SHA256 — como las capas de Docker). Así el sidecar
+            // NUNCA toca el ~/.ollama del usuario ni depende de tener
+            // internet la primera vez: todo lo que necesita ya está dentro
+            // del propio instalador de Zalent.
+            let models_dir = app
+                .path()
+                .resolve("models", tauri::path::BaseDirectory::Resource)
+                .ok();
+            match &models_dir {
+                Some(p) => eprintln!("[zalent] modelos empotrados en: {}", p.display()),
+                None => eprintln!("[zalent] no se pudo resolver la carpeta de modelos empotrados"),
+            }
+
             // Arrancamos Ollama como sidecar: viaja EMPOTRADO en el propio
             // instalador de Zalent (ver src-tauri/binaries/), así que el
             // usuario nunca instala nada aparte ni abre una terminal. Si
@@ -671,12 +689,17 @@ pub fn run() {
             // disponible" y el resto de Zalent sigue funcionando (principio
             // "la IA mejora el producto, no es el producto").
             match app.shell().sidecar("ollama") {
-                Ok(cmd) => match cmd.arg("serve").env("OLLAMA_HOST", OLLAMA_HOST).spawn() {
+                Ok(cmd) => {
+                    let mut cmd = cmd.arg("serve").env("OLLAMA_HOST", OLLAMA_HOST);
+                    if let Some(p) = &models_dir {
+                        cmd = cmd.env("OLLAMA_MODELS", p.to_string_lossy().to_string());
+                    }
+                    match cmd.spawn() {
                     Ok((_rx, child)) => {
-                        app.state::<OllamaSidecar>().0.lock().unwrap().replace(child);
+                        app.state::<OllamaSidecar>().0.lock().unwrap().replace(child.pid());
                     }
                     Err(e) => eprintln!("No se pudo arrancar el sidecar de Ollama: {e}"),
-                },
+                }},
                 Err(e) => eprintln!("No se pudo resolver el sidecar de Ollama: {e}"),
             }
             Ok(())
@@ -711,20 +734,17 @@ pub fn run() {
             // quedaría corriendo de fondo indefinidamente como un proceso
             // zombi cada vez que el usuario cierra la app.
             if let tauri::RunEvent::Exit = event {
-                if let Some(child) = app_handle.state::<OllamaSidecar>().0.lock().unwrap().take() {
-                    let _ = child.kill();
-                }
-                // `child.kill()` solo mata al proceso `ollama.exe` que lanzamos
-                // nosotros — NO a `llama-server.exe`, que es un hijo que Ollama
-                // lanza por su cuenta para cargar el modelo (verificado: sin
-                // esto se queda corriendo de fondo con el modelo entero en RAM).
-                // Lo cazamos aparte, por nombre, como red de seguridad.
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/IM", "llama-server.exe", "/T"])
-                        .creation_flags(0x08000000) // CREATE_NO_WINDOW: sin parpadeo de consola al cerrar
-                        .output();
+                if let Some(pid) = app_handle.state::<OllamaSidecar>().0.lock().unwrap().take() {
+                    // `/T` mata el proceso Y TODO SU ÁRBOL de un golpe: nos
+                    // ahorra tanto el cuelgue de `child.kill()` como tener que
+                    // cazar `llama-server.exe` por separado (Diario, 30.5).
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/PID", &pid.to_string(), "/T"])
+                            .creation_flags(0x08000000) // CREATE_NO_WINDOW: sin parpadeo de consola al cerrar
+                            .output();
+                    }
                 }
             }
         });
