@@ -348,6 +348,147 @@ fn encrypt_all_cvs(app: tauri::AppHandle, state: State<KeyState>) -> Result<usiz
     Ok(count)
 }
 
+// ============================================================================
+// SPIKE (temporal): hablar con Ollama, que corre NATIVO fuera de Zalent.
+//
+// Por qué desde Rust y no con fetch() desde la interfaz:
+//   1. CORS. En producción el webview tiene origen `tauri://localhost`, que
+//      Ollama rechazaría. Desde Rust no hay navegador, así que no hay CORS.
+//   2. Arquitectura: el lado nativo es el ADAPTADOR al mundo exterior. La
+//      interfaz no debería saber que Ollama existe (principio hexagonal).
+//
+// Objetivo del spike: responder si un modelo BUENO (7B) extrae la ficha bien
+// en español. La velocidad aquí no decide: sabemos que irá lento por CPU.
+// ============================================================================
+
+const OLLAMA_URL: &str = "http://127.0.0.1:11434";
+
+#[derive(Serialize)]
+pub struct OllamaStatus {
+    running: bool,
+    models: Vec<String>,
+    error: String,
+}
+
+// ¿Está Ollama levantado y con qué modelos? Sin esto, cualquier fallo
+// posterior parecería un bug nuestro cuando en realidad es que no arrancó.
+#[tauri::command]
+async fn ollama_status() -> OllamaStatus {
+    let client = reqwest::Client::new();
+    match client.get(format!("{OLLAMA_URL}/api/tags")).send().await {
+        Ok(resp) => match resp.json::<serde_json::Value>().await {
+            Ok(v) => {
+                let models = v["models"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["name"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                OllamaStatus { running: true, models, error: String::new() }
+            }
+            Err(e) => OllamaStatus {
+                running: true,
+                models: vec![],
+                error: format!("respuesta ilegible: {e}"),
+            },
+        },
+        Err(e) => OllamaStatus {
+            running: false,
+            models: vec![],
+            error: format!("no responde en {OLLAMA_URL}: {e}"),
+        },
+    }
+}
+
+#[derive(Serialize)]
+pub struct OllamaExtractResult {
+    raw: String,
+    ms: u64,
+    error: String,
+}
+
+// El ESQUEMA. Ollama acepta un JSON Schema en `format` y OBLIGA al modelo a
+// cumplirlo: ya no puede devolver `fullName` en vez de `full_name`, ni
+// saltarse campos, ni envolverlo en ```json. El formato deja de ser un ruego
+// y pasa a ser una garantía. (Con transformers.js no teníamos esto.)
+fn extraction_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "full_name":        { "type": ["string", "null"] },
+            "location":         { "type": ["string", "null"] },
+            "last_position":    { "type": ["string", "null"] },
+            "years_experience": { "type": ["integer", "null"] },
+            "education":        { "type": ["string", "null"] },
+            "skills":           { "type": "array", "items": { "type": "string" } },
+            "languages":        { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+            "full_name", "location", "last_position",
+            "years_experience", "education", "skills", "languages"
+        ]
+    })
+}
+
+#[tauri::command]
+async fn ollama_extract(model: String, cv_text: String) -> OllamaExtractResult {
+    let prompt = format!(
+        "Extrae los datos de este CV.\n\n\
+         REGLAS:\n\
+         - Si un dato NO aparece en el CV, pon null. No lo inventes ni lo deduzcas.\n\
+         - Copia literalmente lo que pone el CV.\n\
+         - years_experience: años de experiencia LABORAL (no los de estudios).\n\n\
+         CV:\n{}",
+        // Recortamos: el contexto cuesta tiempo y los CVs largos no aportan más.
+        cv_text.chars().take(6000).collect::<String>()
+    );
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": "Eres un extractor de datos de CVs. No inventas nada." },
+            { "role": "user", "content": prompt }
+        ],
+        "format": extraction_schema(),
+        "stream": false,
+        "options": { "temperature": 0 } // sin azar: mismo CV → misma ficha
+    });
+
+    let client = reqwest::Client::builder()
+        // Un 7B por CPU es lento; el timeout por defecto lo cortaría a medias
+        // y parecería un fallo cuando solo estaba pensando.
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let resp = client
+        .post(format!("{OLLAMA_URL}/api/chat"))
+        .json(&body)
+        .send()
+        .await;
+    let ms = started.elapsed().as_millis() as u64;
+
+    match resp {
+        Ok(r) => match r.json::<serde_json::Value>().await {
+            Ok(v) => {
+                if let Some(err) = v["error"].as_str() {
+                    return OllamaExtractResult { raw: String::new(), ms, error: err.to_string() };
+                }
+                OllamaExtractResult {
+                    raw: v["message"]["content"].as_str().unwrap_or("").to_string(),
+                    ms,
+                    error: String::new(),
+                }
+            }
+            Err(e) => OllamaExtractResult { raw: String::new(), ms, error: e.to_string() },
+        },
+        Err(e) => OllamaExtractResult { raw: String::new(), ms, error: e.to_string() },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Migraciones: definen y versionan el esquema de la base de datos.
@@ -528,7 +669,9 @@ pub fn run() {
             unlock,
             remove_master_password,
             crypto_selftest,
-            encrypt_all_cvs
+            encrypt_all_cvs,
+            ollama_status,
+            ollama_extract
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

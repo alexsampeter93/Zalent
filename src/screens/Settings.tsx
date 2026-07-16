@@ -11,13 +11,7 @@ import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
 import { reindexAll } from "../lib/ai/search";
 import { clearAllVotes } from "../lib/feedback";
-import { checkWebGpu, type WebGpuReport } from "../lib/ai/webgpu-check";
-import {
-  runLlmSpike,
-  type LlmSpikeReport,
-  type ModelSize,
-  type Device,
-} from "../lib/ai/llm-spike";
+import { ollamaStatus, ollamaExtract, type OllamaResult } from "../lib/ai/ollama-spike";
 import { getDb } from "../lib/db";
 
 type Section =
@@ -497,30 +491,21 @@ function SearchAiSection() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
-  // --- Temporal (spike WebGPU): se quita al decidir lo del LLM local ---
-  const [gpuBusy, setGpuBusy] = useState(false);
-  const [gpuStep, setGpuStep] = useState("");
-  const [gpuReport, setGpuReport] = useState<WebGpuReport | null>(null);
-
-  async function runGpuCheck() {
-    setGpuBusy(true);
-    setGpuReport(null);
-    try {
-      setGpuReport(await checkWebGpu(setGpuStep));
-    } finally {
-      setGpuBusy(false);
-      setGpuStep("");
-    }
-  }
-
-  // --- Temporal (spike LLM local): mide segundos/CV con un CV real tuyo ---
+  // --- Temporal (spike Ollama): ¿un modelo BUENO extrae la ficha en español? ---
   const [llmBusy, setLlmBusy] = useState(false);
   const [llmStep, setLlmStep] = useState("");
-  const [llmReport, setLlmReport] = useState<LlmSpikeReport | null>(null);
+  const [llmReport, setLlmReport] = useState<OllamaResult | null>(null);
+  const [status, setStatus] = useState<{ running: boolean; models: string[]; error: string } | null>(null);
+  const [model, setModel] = useState("qwen2.5:7b");
 
-  async function runLlm(size: ModelSize, device: Device = "webgpu") {
+  async function checkStatus() {
+    setStatus(await ollamaStatus());
+  }
+
+  async function runLlm() {
     setLlmBusy(true);
     setLlmReport(null);
+    setLlmStep("Leyendo el CV… (un 7B por CPU tarda; ten paciencia)");
     try {
       const db = await getDb();
       const rows = await db.select<{ raw_text: string | null }[]>(
@@ -529,17 +514,15 @@ function SearchAiSection() {
       const text = rows[0]?.raw_text;
       if (!text) {
         setLlmReport({
-          loadMs: 0, inferMs: 0, raw: "", parsed: null, jsonOk: false,
-          fields: null, rejected: [],
+          ms: 0, raw: "", parsed: null, fields: null, rejected: [],
           error: "No hay ningún CV con texto en la base. Importa uno primero.",
         });
         return;
       }
-      setLlmReport(await runLlmSpike(text, size, device, setLlmStep));
+      setLlmReport(await ollamaExtract(model, text));
     } catch (e) {
       setLlmReport({
-        loadMs: 0, inferMs: 0, raw: "", parsed: null, jsonOk: false,
-        fields: null, rejected: [], error: String(e),
+        ms: 0, raw: "", parsed: null, fields: null, rejected: [], error: String(e),
       });
     } finally {
       setLlmBusy(false);
@@ -577,66 +560,42 @@ function SearchAiSection() {
 
   return (
     <>
-      {/* --- Temporal (spike WebGPU): se quita al decidir lo del LLM local --- */}
+      {/* --- Temporal (spike Ollama) --- */}
       <section className="card">
-        <p className="card__title">Diagnóstico: WebGPU</p>
+        <p className="card__title">Diagnóstico: Ollama</p>
         <p className="card__intro">
-          Comprueba si la app puede usar tu tarjeta gráfica. De esto depende que
-          se pueda añadir un modelo local que rellene las fichas.
+          Ollama corre fuera de Zalent, de forma nativa: sin los límites de
+          memoria del navegador. Le pedimos la ficha de tu CV más reciente. El
+          CV va a un programa de tu equipo — no sale a internet.
         </p>
         <div className="actions">
-          <button className="btn-secondary" onClick={runGpuCheck} disabled={gpuBusy}>
-            {gpuBusy ? "Probando…" : "Ejecutar prueba"}
+          <button className="btn-secondary" onClick={checkStatus} disabled={llmBusy}>
+            Comprobar Ollama
+          </button>
+          <input
+            className="input"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            style={{ maxWidth: 190 }}
+          />
+          <button className="btn-secondary" onClick={runLlm} disabled={llmBusy}>
+            {llmBusy ? "Pensando…" : "Extraer ficha"}
           </button>
         </div>
-        {gpuStep && <p className="card__intro">{gpuStep}</p>}
-        {gpuReport && (
+
+        {status && (
           <ul className="card__intro" style={{ lineHeight: 1.9 }}>
-            <li>navigator.gpu: <strong>{gpuReport.hasNavigatorGpu ? "sí" : "NO"}</strong></li>
-            <li>Adaptador: <strong>{gpuReport.adapter}</strong></li>
-            <li>Inferencia por GPU: <strong>{gpuReport.gpuOk ? "OK" : "FALLA"}</strong></li>
-            <li>GPU: <strong>{gpuReport.gpuMs != null ? gpuReport.gpuMs + " ms" : "—"}</strong></li>
-            <li>CPU: <strong>{gpuReport.cpuMs != null ? gpuReport.cpuMs + " ms" : "—"}</strong></li>
-            <li>Ganancia: <strong>{gpuReport.speedup}</strong></li>
-            {gpuReport.error && <li style={{ color: "crimson" }}>{gpuReport.error}</li>}
+            <li>¿Ollama responde?: <strong>{status.running ? "sí" : "NO"}</strong></li>
+            <li>Modelos: <strong>{status.models.join(", ") || "ninguno"}</strong></li>
+            {status.error && <li style={{ color: "crimson" }}>{status.error}</li>}
           </ul>
         )}
-      </section>
 
-      {/* --- Temporal (spike LLM local) --- */}
-      <section className="card">
-        <p className="card__title">Diagnóstico: LLM local</p>
-        <p className="card__intro">
-          Descarga un modelo pequeño (~400 MB, una vez) y le pide extraer la
-          ficha de tu CV más reciente. Mide cuánto tarda por CV. Todo en local:
-          el CV no sale del equipo.
-        </p>
-        <div className="actions">
-          <button className="btn-secondary" onClick={() => runLlm("0.5B")} disabled={llmBusy}>
-            {llmBusy ? "Probando…" : "Probar 0.5B (rápido)"}
-          </button>
-          <button className="btn-secondary" onClick={() => runLlm("1.5B")} disabled={llmBusy}>
-            {llmBusy ? "Probando…" : "Probar 1.5B (GPU)"}
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => runLlm("1.5B", "wasm")}
-            disabled={llmBusy}
-            title="Lento a propósito: aquí solo miramos la calidad, no el tiempo"
-          >
-            {llmBusy ? "Probando…" : "Probar 1.5B por CPU (lento)"}
-          </button>
-        </div>
         {llmStep && <p className="card__intro">{llmStep}</p>}
         {llmReport && (
           <>
             <ul className="card__intro" style={{ lineHeight: 1.9 }}>
-              <li>Carga del modelo: <strong>{(llmReport.loadMs / 1000).toFixed(1)} s</strong></li>
-              <li>
-                Tiempo por CV:{" "}
-                <strong>{(llmReport.inferMs / 1000).toFixed(1)} s</strong> ← el que decide
-              </li>
-              <li>¿Devolvió JSON válido?: <strong>{llmReport.jsonOk ? "sí" : "NO"}</strong></li>
+              <li>Tiempo: <strong>{(llmReport.ms / 1000).toFixed(1)} s</strong></li>
               {llmReport.error && <li style={{ color: "crimson" }}>{llmReport.error}</li>}
             </ul>
             {llmReport.fields && (
