@@ -392,11 +392,15 @@ function App() {
         } catch (err) {
           console.error("save_cv:", err);
         }
+        const gy = Number(g.years_experience);
         await saveCandidate({
           full_name: g.full_name, email: g.email, phone: g.phone,
-          location: "", headline: "", years_experience: null, education: "",
+          location: g.location, headline: "",
+          years_experience: g.years_experience && !Number.isNaN(gy) ? gy : null,
+          education: g.education,
           links: g.links, raw_text: text, source_file: file.name,
-          file_path: filePath, skills: [], languages: [],
+          file_path: filePath,
+          skills: splitList(g.skills), languages: splitList(g.languages),
         });
       } catch (err) {
         errors.push({ name: file.name, error: String(err) });
