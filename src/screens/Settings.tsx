@@ -11,6 +11,14 @@ import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
 import { reindexAll } from "../lib/ai/search";
 import { clearAllVotes } from "../lib/feedback";
+import { checkWebGpu, type WebGpuReport } from "../lib/ai/webgpu-check";
+import {
+  runLlmSpike,
+  type LlmSpikeReport,
+  type ModelSize,
+  type Device,
+} from "../lib/ai/llm-spike";
+import { getDb } from "../lib/db";
 
 type Section =
   | "apariencia"
@@ -489,6 +497,55 @@ function SearchAiSection() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
+  // --- Temporal (spike WebGPU): se quita al decidir lo del LLM local ---
+  const [gpuBusy, setGpuBusy] = useState(false);
+  const [gpuStep, setGpuStep] = useState("");
+  const [gpuReport, setGpuReport] = useState<WebGpuReport | null>(null);
+
+  async function runGpuCheck() {
+    setGpuBusy(true);
+    setGpuReport(null);
+    try {
+      setGpuReport(await checkWebGpu(setGpuStep));
+    } finally {
+      setGpuBusy(false);
+      setGpuStep("");
+    }
+  }
+
+  // --- Temporal (spike LLM local): mide segundos/CV con un CV real tuyo ---
+  const [llmBusy, setLlmBusy] = useState(false);
+  const [llmStep, setLlmStep] = useState("");
+  const [llmReport, setLlmReport] = useState<LlmSpikeReport | null>(null);
+
+  async function runLlm(size: ModelSize, device: Device = "webgpu") {
+    setLlmBusy(true);
+    setLlmReport(null);
+    try {
+      const db = await getDb();
+      const rows = await db.select<{ raw_text: string | null }[]>(
+        "SELECT raw_text FROM candidates WHERE raw_text IS NOT NULL ORDER BY id DESC LIMIT 1",
+      );
+      const text = rows[0]?.raw_text;
+      if (!text) {
+        setLlmReport({
+          loadMs: 0, inferMs: 0, raw: "", parsed: null, jsonOk: false,
+          fields: null, rejected: [],
+          error: "No hay ningún CV con texto en la base. Importa uno primero.",
+        });
+        return;
+      }
+      setLlmReport(await runLlmSpike(text, size, device, setLlmStep));
+    } catch (e) {
+      setLlmReport({
+        loadMs: 0, inferMs: 0, raw: "", parsed: null, jsonOk: false,
+        fields: null, rejected: [], error: String(e),
+      });
+    } finally {
+      setLlmBusy(false);
+      setLlmStep("");
+    }
+  }
 
   async function reindex() {
     setBusy(true);
@@ -520,6 +577,119 @@ function SearchAiSection() {
 
   return (
     <>
+      {/* --- Temporal (spike WebGPU): se quita al decidir lo del LLM local --- */}
+      <section className="card">
+        <p className="card__title">Diagnóstico: WebGPU</p>
+        <p className="card__intro">
+          Comprueba si la app puede usar tu tarjeta gráfica. De esto depende que
+          se pueda añadir un modelo local que rellene las fichas.
+        </p>
+        <div className="actions">
+          <button className="btn-secondary" onClick={runGpuCheck} disabled={gpuBusy}>
+            {gpuBusy ? "Probando…" : "Ejecutar prueba"}
+          </button>
+        </div>
+        {gpuStep && <p className="card__intro">{gpuStep}</p>}
+        {gpuReport && (
+          <ul className="card__intro" style={{ lineHeight: 1.9 }}>
+            <li>navigator.gpu: <strong>{gpuReport.hasNavigatorGpu ? "sí" : "NO"}</strong></li>
+            <li>Adaptador: <strong>{gpuReport.adapter}</strong></li>
+            <li>Inferencia por GPU: <strong>{gpuReport.gpuOk ? "OK" : "FALLA"}</strong></li>
+            <li>GPU: <strong>{gpuReport.gpuMs != null ? gpuReport.gpuMs + " ms" : "—"}</strong></li>
+            <li>CPU: <strong>{gpuReport.cpuMs != null ? gpuReport.cpuMs + " ms" : "—"}</strong></li>
+            <li>Ganancia: <strong>{gpuReport.speedup}</strong></li>
+            {gpuReport.error && <li style={{ color: "crimson" }}>{gpuReport.error}</li>}
+          </ul>
+        )}
+      </section>
+
+      {/* --- Temporal (spike LLM local) --- */}
+      <section className="card">
+        <p className="card__title">Diagnóstico: LLM local</p>
+        <p className="card__intro">
+          Descarga un modelo pequeño (~400 MB, una vez) y le pide extraer la
+          ficha de tu CV más reciente. Mide cuánto tarda por CV. Todo en local:
+          el CV no sale del equipo.
+        </p>
+        <div className="actions">
+          <button className="btn-secondary" onClick={() => runLlm("0.5B")} disabled={llmBusy}>
+            {llmBusy ? "Probando…" : "Probar 0.5B (rápido)"}
+          </button>
+          <button className="btn-secondary" onClick={() => runLlm("1.5B")} disabled={llmBusy}>
+            {llmBusy ? "Probando…" : "Probar 1.5B (GPU)"}
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => runLlm("1.5B", "wasm")}
+            disabled={llmBusy}
+            title="Lento a propósito: aquí solo miramos la calidad, no el tiempo"
+          >
+            {llmBusy ? "Probando…" : "Probar 1.5B por CPU (lento)"}
+          </button>
+        </div>
+        {llmStep && <p className="card__intro">{llmStep}</p>}
+        {llmReport && (
+          <>
+            <ul className="card__intro" style={{ lineHeight: 1.9 }}>
+              <li>Carga del modelo: <strong>{(llmReport.loadMs / 1000).toFixed(1)} s</strong></li>
+              <li>
+                Tiempo por CV:{" "}
+                <strong>{(llmReport.inferMs / 1000).toFixed(1)} s</strong> ← el que decide
+              </li>
+              <li>¿Devolvió JSON válido?: <strong>{llmReport.jsonOk ? "sí" : "NO"}</strong></li>
+              {llmReport.error && <li style={{ color: "crimson" }}>{llmReport.error}</li>}
+            </ul>
+            {llmReport.fields && (
+              <>
+                <p className="card__title" style={{ marginTop: "1rem" }}>
+                  Ficha final (ya validada)
+                </p>
+                <ul className="card__intro" style={{ lineHeight: 1.9 }}>
+                  <li>Nombre: <strong>{llmReport.fields.full_name ?? "—"}</strong></li>
+                  <li>Ubicación: <strong>{llmReport.fields.location ?? "—"}</strong></li>
+                  <li>Último puesto: <strong>{llmReport.fields.last_position ?? "—"}</strong></li>
+                  <li>Años: <strong>{llmReport.fields.years_experience ?? "—"}</strong></li>
+                  <li>Estudios: <strong>{llmReport.fields.education ?? "—"}</strong></li>
+                  <li>Skills: <strong>{llmReport.fields.skills.join(", ") || "—"}</strong></li>
+                  <li>Idiomas: <strong>{llmReport.fields.languages.join(", ") || "—"}</strong></li>
+                </ul>
+              </>
+            )}
+
+            {llmReport.rejected.length > 0 && (
+              <>
+                <p className="card__title" style={{ marginTop: "1rem" }}>
+                  Descartado por el validador ({llmReport.rejected.length})
+                </p>
+                <ul className="card__intro" style={{ lineHeight: 1.8, color: "crimson" }}>
+                  {llmReport.rejected.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {llmReport.raw && (
+              <>
+                <p className="card__title" style={{ marginTop: "1rem" }}>
+                  Lo que propuso el modelo (en crudo)
+                </p>
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    fontSize: "0.78rem", background: "rgba(0,0,0,.05)",
+                    padding: "0.75rem", borderRadius: 8, maxHeight: 260,
+                    overflow: "auto",
+                  }}
+                >
+                  {llmReport.raw}
+                </pre>
+              </>
+            )}
+          </>
+        )}
+      </section>
+
       <section className="card">
         <p className="card__title">Índice de búsqueda</p>
         <p className="card__intro">
