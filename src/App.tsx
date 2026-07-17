@@ -1573,10 +1573,16 @@ function App() {
               disabled={batchRunning}
               hidden
             />
-            <img
-              src="/olaz/coco-running-cv-papers.png"
-              alt="Olaz"
+            {/* Olaz corriendo con los CVs: encaja con "arrastra tus CVs aquí".
+                Se acelera mientras importa — el movimiento cuenta que está
+                trabajando, sin necesidad de otro texto. */}
+            <OlazSprite
+              name="olaz-run"
+              frames={6}
+              fps={batchRunning ? 12 : 8}
+              height={132}
               className="dropzone__olaz"
+              alt="Olaz corriendo con los CVs"
             />
             <div className="dropzone__title">Arrastra tus CVs aquí</div>
             <div className="dropzone__sub">

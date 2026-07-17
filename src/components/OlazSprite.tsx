@@ -12,8 +12,12 @@ interface OlazSpriteProps {
   name: string; // base del nombre de archivo, p.ej. "olaz-peek"
   frames: number; // nº de frames disponibles (01..NN)
   fps?: number; // fotogramas por segundo (por defecto 10)
-  width?: number; // ancho en píxeles (por defecto 96)
-  height?: number; // alto en píxeles (por defecto = width)
+  // Se puede dar `width` o `height`. Para las animaciones de Olaz hay que
+  // usar SIEMPRE `height`: al levantar el brazo el lienzo se ensancha, así
+  // que ajustar por anchura encogería al personaje justo en ese frame. Lo
+  // que no cambia nunca es cuánto mide de alto.
+  width?: number;
+  height?: number;
   loop?: boolean; // repetir en bucle (por defecto true)
   playOn?: "always" | "hover"; // cuándo se anima
   sequence?: number[]; // orden de reproducción (por defecto 1..frames)
@@ -29,7 +33,7 @@ export function OlazSprite({
   name,
   frames,
   fps = 10,
-  width = 96,
+  width,
   height,
   loop = true,
   playOn = "always",
@@ -81,16 +85,25 @@ export function OlazSprite({
   }, [hovering, playOn]);
 
   const frame = seq[pos] ?? 1;
-  const h = height ?? width;
+  // Tamaño: SIEMPRE por altura. Ajustar por anchura es imposible con este
+  // personaje — al levantar el brazo el lienzo se ensancha, así que la misma
+  // anchura lo encogería justo en ese frame. De alto mide siempre igual.
+  //
+  // Y si no se pasa ninguna medida, NO se inyecta estilo en línea: manda el
+  // CSS de la clase. (Antes había un `width: 96` por defecto que pisaba
+  // silenciosamente al CSS y dejaba a Olaz a 64px en vez de 114.)
+  const size: React.CSSProperties = height
+    ? { height, width: width ?? "auto" }
+    : width
+      ? { width, height: "auto" }
+      : {};
 
   return (
     <img
       src={frameSrc(name, frame)}
       alt={alt}
-      width={width}
-      height={h}
       className={className}
-      style={{ width, height: h, objectFit: "contain" }}
+      style={{ ...size, objectFit: "contain" }}
       draggable={false}
       onMouseEnter={playOn === "hover" ? () => setHovering(true) : undefined}
       onMouseLeave={playOn === "hover" ? () => setHovering(false) : undefined}

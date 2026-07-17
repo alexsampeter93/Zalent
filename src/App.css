@@ -1087,8 +1087,6 @@ mark {
   opacity: 0.75;
 }
 .dropzone__olaz {
-  width: 96px;
-  height: 96px;
   object-fit: contain;
   filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.16));
   pointer-events: none;

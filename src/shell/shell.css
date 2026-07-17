@@ -66,11 +66,14 @@
 .coco-logo {
   position: relative;
   z-index: 2;
-  width: 106px;
-  height: auto;
+  height: 132px;
+  width: auto;
   filter: drop-shadow(0 0 20px rgba(255, 214, 140, 0.55));
   transform-origin: bottom center;
-  animation: coco-idle 6s ease-in-out infinite;
+  /* Sin "flotado": el Olaz del menú ya tiene sus propias animaciones por
+     frames (parpadeo, saludo, gafas). El respirar por CSS encima se sumaba
+     al movimiento y lo enturbiaba. El flotado se reutiliza en la pantalla
+     de contraseña (.lock__olaz), donde Olaz sí está quieto esperando. */
 }
 /* Olaz "vivo": respira y da un saltito juguetón cada ciclo. */
 @keyframes coco-idle {
@@ -304,7 +307,8 @@
     height: 66px;
   }
   .coco-logo {
-    width: 44px;
+    height: 55px;
+    width: auto;
   }
   .coco-beam,
   .coco-glow {
@@ -351,6 +355,10 @@
   height: 96px;
   object-fit: contain;
   filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.2));
+  /* El "flotado" (respira + saltito) que antes vivía en el menú: aquí Olaz
+     está quieto esperando la contraseña, así que le sienta bien. */
+  transform-origin: bottom center;
+  animation: coco-idle 6s ease-in-out infinite;
 }
 .lock__title {
   font-family: var(--font-serif);

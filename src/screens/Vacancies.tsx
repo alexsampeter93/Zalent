@@ -77,7 +77,15 @@ export function Vacancies() {
           <>
             {!loaded ? null : list.length === 0 ? (
               <EmptyState
-                image="coco-thinking-cv"
+                // Cuenta una historia (papeles hechos un lío -> ordenados), así
+                // que cada estado necesita verse. Pero las pausas se hacen
+                // repitiendo frames a fps alto, no bajando los fps.
+                sprite={{
+                  name: "olaz-organize",
+                  frames: 5,
+                  fps: 10,
+                  sequence: [1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 5, 5],
+                }}
                 title="Aún no tienes ofertas"
                 subtitle="Crea tu primera vacante para organizar a los candidatos por puesto, puntuarlos y llevar su pipeline."
                 action={{

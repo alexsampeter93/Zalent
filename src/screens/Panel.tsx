@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { OlazSprite } from "../components/OlazSprite";
 import { listCandidates, type CandidateRow } from "../lib/candidates";
 import {
   listVacancies,
@@ -157,7 +158,19 @@ export function Panel() {
             </div>
 
             <div className="panel-mascot">
-              <img src="/olaz/coco-thumbsup-cv.png" alt="Olaz" />
+              {/* Olaz saltando y tirando los CVs al aire: es la pantalla de
+                  "míralo todo hecho", así que aquí celebra. Se anima al pasar
+                  el ratón, no sola — en un panel de datos, algo moviéndose sin
+                  parar distrae de los números, que es a lo que se viene. */}
+              <OlazSprite
+                name="olaz-jump"
+                frames={5}
+                sequence={[1, 2, 3, 4, 4, 5, 5, 1]}
+                fps={11}
+                height={165}
+                playOn="hover"
+                alt="Olaz celebrando"
+              />
               <p>Todo tu talento, ordenado y en tu equipo.</p>
             </div>
           </>

@@ -1,19 +1,31 @@
-import { type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import "./shell.css";
 import { useThemeMode, resolvedTheme } from "../lib/theme";
 
-// El Olaz del menú es una imagen fija (con vida por CSS: respira + saltito,
-// ver @keyframes coco-idle en shell.css) hasta que haya frames de
-// parpadeo/saludo con transparencia real. Se intentó animar por sprites dos
-// veces (Diario, entradas pendientes): la primera tanda tenía el fondo
-// "falso transparente" (una foto de un patrón de cuadros, no alfa de
-// verdad); la segunda tanda SÍ traía alfa real pero con el patrón de
-// cuadros grabado dentro del propio canal alfa (parcialmente transparente
-// en rejilla) — se detectó componiendo cada frame sobre un fondo OSCURO
-// como el del menú real, que es donde se hacía visible; sobre fondo blanco
-// parecía correcto. Ninguna de las dos tandas era recuperable con recorte
-// de color. Si se retoma, la comprobación de referencia es esa: componer
-// sobre oscuro antes de dar un frame por bueno.
+// El Olaz del menú va rotando sus animaciones EN ORDEN — parpadeo, saludo,
+// gafas — y cada una se reproduce UNA vez, limpia, ida y vuelta al reposo.
+// Entre una y otra hay una pausa corta en la pose de reposo (frame 1).
+//
+// Todo se dibuja con UN SOLO <img> cuyo `src` va cambiando entre frames ya
+// precargados. Antes se alternaba entre un <img> del avatar y un componente
+// aparte: cada cambio de elemento provocaba un "destello negro" (el navegador
+// recargaba la imagen y por un instante se veía el fondo oscuro). Con un solo
+// elemento y todo precargado, no hay recarga: no hay destello.
+type MenuAnim = { name: string; frames: number; seq: number[]; fps: number };
+
+const MENU_ANIMS: MenuAnim[] = [
+  // parpadeo: abre-medio-cierra-medio-abre, una vez
+  { name: "olaz-blink", frames: 3, seq: [1, 2, 3, 2, 1], fps: 12 },
+  // saludo: sube el brazo, saluda, lo baja. Pausado para que se lea con calma.
+  { name: "olaz-wave", frames: 4, seq: [1, 2, 3, 4, 3, 4, 2, 1], fps: 7 },
+  // gafas: se resbalan, sube el dedo, las recoloca
+  { name: "olaz-glasses", frames: 4, seq: [1, 2, 3, 4, 1], fps: 8 },
+];
+
+// Pausa en reposo entre una animación y la siguiente (ms).
+const IDLE_MIN = 2200;
+const IDLE_MAX = 4500;
+const REST = "/olaz/frames/olaz-blink-01.png"; // pose de reposo (ojos abiertos)
 
 export type Screen =
   | "candidatos"
@@ -22,6 +34,62 @@ export type Screen =
   | "pipeline"
   | "panel"
   | "ajustes";
+
+// Todas las rutas de frames que el menú puede mostrar (para precargarlas).
+const ALL_MENU_FRAMES = MENU_ANIMS.flatMap((a) =>
+  Array.from({ length: a.frames }, (_, i) => `/olaz/frames/${a.name}-${String(i + 1).padStart(2, "0")}.png`),
+);
+
+function MenuOlaz() {
+  const [src, setSrc] = useState(REST);
+  const timers = useRef<number[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    // Precargar TODO antes de animar: sin esto, el primer paso por cada frame
+    // llegaría sin decodificar y parpadearía.
+    ALL_MENU_FRAMES.forEach((s) => { const im = new Image(); im.src = s; });
+
+    const at = (ms: number, fn: () => void) => {
+      timers.current.push(window.setTimeout(() => { if (alive) fn(); }, ms));
+    };
+
+    let animIdx = 0;
+    const playNext = () => {
+      if (!alive || reduced) return;
+      const a = MENU_ANIMS[animIdx % MENU_ANIMS.length];
+      animIdx++;
+      const step = 1000 / a.fps;
+      // reproducir la secuencia, frame a frame
+      a.seq.forEach((f, i) => {
+        at(i * step, () => setSrc(`/olaz/frames/${a.name}-${String(f).padStart(2, "0")}.png`));
+      });
+      // al terminar: volver al reposo y programar la siguiente tras la pausa
+      const total = a.seq.length * step;
+      at(total, () => setSrc(REST));
+      at(total + IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN), playNext);
+    };
+
+    // primer arranque tras una pausa corta
+    at(IDLE_MIN, playNext);
+    return () => {
+      alive = false;
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    };
+  }, []);
+
+  return (
+    <img
+      className="coco-logo"
+      src={src}
+      alt="Olaz, la mascota de Zalent"
+      draggable={false}
+    />
+  );
+}
 
 const NAV: { key: Screen; label: string; group: string; icon: ReactNode }[] = [
   {
@@ -92,7 +160,7 @@ export function AppShell({
         <div className="rail__hero">
           <div className="coco-beam" />
           <div className="coco-glow" />
-          <img className="coco-logo" src="/olaz/olaz-avatar-zalent.png" alt="Olaz, la mascota de Zalent" />
+          <MenuOlaz />
         </div>
         <div className="rail__name">Zalent</div>
         <div className="rail__tag">Talento local-first</div>
