@@ -1,8 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { extractText } from "./lib/extract";
-import { guessFields } from "./lib/parse";
+import { useEffect, useState } from "react";
 import {
-  saveCandidate,
   listCandidates,
   listForClassification,
   cleanupOrphans,
@@ -23,7 +20,7 @@ import {
   listCandidatesWithNotes,
   type Note,
 } from "./lib/notes";
-import { saveCvFile, openCvFile } from "./lib/files";
+import { openCvFile } from "./lib/files";
 import { indexAllCandidates, search, type SearchHit } from "./lib/ai/search";
 import {
   listVacancies,
@@ -43,75 +40,18 @@ import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
 import { LockScreen } from "./screens/LockScreen";
 import { hasMasterPassword } from "./lib/lock";
-import {
-  ollamaExtract,
-  isModelReady,
-  pullModel,
-  AI_MODEL,
-  type PullProgress,
-} from "./lib/ai/ollama";
 import { Vacancies } from "./screens/Vacancies";
 import { Pipeline } from "./screens/Pipeline";
 import { Panel } from "./screens/Panel";
+import { useImport } from "./screens/import/useImport";
+import { ImportScreen } from "./screens/import/ImportScreen";
 import { OlazSprite } from "./components/OlazSprite";
 import { EmptyState } from "./components/EmptyState";
+import { CandidateFieldsForm, Info } from "./components/CandidateFields";
+import { MatchTag, highlight } from "./components/MatchTag";
+import { type CandidateForm, emptyForm, splitList } from "./lib/candidate-form";
+import { formatDateTime, initials, RELEVANT_FLOOR, matchBand } from "./lib/display";
 import "./App.css";
-
-interface CandidateForm {
-  full_name: string;
-  email: string;
-  phone: string;
-  location: string;
-  headline: string;
-  years_experience: string;
-  education: string;
-  links: string;
-  skills: string;
-  languages: string;
-}
-
-const emptyForm: CandidateForm = {
-  full_name: "", email: "", phone: "", location: "", headline: "",
-  years_experience: "", education: "", links: "", skills: "", languages: "",
-};
-
-function splitList(value: string): string[] {
-  return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-}
-
-function formatDateTime(sqlUtc: string): string {
-  const d = new Date(sqlUtc.replace(" ", "T") + "Z");
-  return isNaN(d.getTime()) ? sqlUtc : d.toLocaleString();
-}
-
-function initials(name: string | null): string {
-  if (!name) return "?";
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-}
-
-// Banda de relevancia a partir de la similitud (calibrada para este modelo;
-// los umbrales son ajustables). Evita que un parecido bajo parezca un "match".
-const RELEVANT_FLOOR = 0.35;
-function matchBand(score: number): { label: string; cls: string } {
-  if (score >= 0.6) return { label: "Alta", cls: "match--alta" };
-  if (score >= RELEVANT_FLOOR) return { label: "Media", cls: "match--media" };
-  return { label: "Baja", cls: "match--baja" };
-}
-
-// Resalta las palabras de la búsqueda dentro de un texto.
-function highlight(text: string, query: string): ReactNode[] {
-  const terms = Array.from(
-    new Set(
-      query.toLowerCase().split(/\s+/).map((t) => t.replace(/[^\p{L}\p{N}]/gu, "")).filter((t) => t.length >= 3),
-    ),
-  );
-  if (terms.length === 0) return [text];
-  const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const re = new RegExp(`(${escaped.join("|")})`, "gi");
-  return text.split(re).map((part, i) =>
-    terms.includes(part.toLowerCase()) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>,
-  );
-}
 
 interface Row {
   id: number;
@@ -127,35 +67,17 @@ function App() {
   // Bloqueo: null = comprobando, true = bloqueada, false = abierta.
   const [locked, setLocked] = useState<boolean | null>(null);
 
-  // Importación
-  const [fileName, setFileName] = useState("");
-  const [currentFile, setCurrentFile] = useState<File | null>(null);
-  const [extracting, setExtracting] = useState(false);
-  const [extractedText, setExtractedText] = useState("");
-  const [extractError, setExtractError] = useState("");
-  const [fileKey, setFileKey] = useState(0);
-  const [form, setForm] = useState<CandidateForm>(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [batchRunning, setBatchRunning] = useState(false);
-  const [batchTotal, setBatchTotal] = useState(0);
-  const [batchDone, setBatchDone] = useState(0);
-  const [batchErrors, setBatchErrors] = useState<{ name: string; error: string }[]>([]);
-  const [batchKey, setBatchKey] = useState(0);
-  const [showBatchMsg, setShowBatchMsg] = useState(false);
-  const [importReminder, setImportReminder] = useState(false);
-  // IA en la importación: opcional, apagada por defecto (es lenta: ~30-40s
-  // por CV). El modelo NO viene en el instalador — se descarga la primera
-  // vez que el usuario la enciende. Si algo falla, el resto de Zalent sigue
-  // igual ("la IA mejora el producto, no es el producto").
-  const [aiAvailable, setAiAvailable] = useState(false);
-  const [useAiImport, setUseAiImport] = useState(false);
-  const [pulling, setPulling] = useState(false);
-  const [pullPct, setPullPct] = useState(0);
-  const [pullMsg, setPullMsg] = useState("");
+  // Toda la importación (estado + lógica) vive en su hook. Se llama aquí para
+  // que su estado PERSISTA al navegar y volver, igual que antes de partir App.
+  const imp = useImport({
+    active: screen === "importar",
+    onImported: async () => {
+      await refreshCandidates();
+      await refreshFilters();
+    },
+  });
+
   const [showCandReminder, setShowCandReminder] = useState(false);
-  const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
-  const folderRef = useRef<HTMLInputElement>(null);
 
   // Filtros de la tabla de Candidatos
   const [filterVacancy, setFilterVacancy] = useState<number | "all">("all");
@@ -233,58 +155,6 @@ function App() {
     }
   }, [screen]);
 
-  // El mensaje "Importados X de Y" se muestra un momento y se desvanece.
-  useEffect(() => {
-    if (!showBatchMsg) return;
-    const t = setTimeout(() => setShowBatchMsg(false), 4500);
-    return () => clearTimeout(t);
-  }, [showBatchMsg]);
-
-  // ¿Está el modelo ya descargado? Se comprueba al entrar en Importar.
-  useEffect(() => {
-    if (screen !== "importar") return;
-    isModelReady().then(setAiAvailable);
-  }, [screen]);
-
-  // Descarga el modelo la primera vez (~4,7 GB). El progreso llega desde Rust
-  // por eventos; sin eso el usuario vería la app parada varios minutos.
-  async function downloadModel() {
-    setPulling(true);
-    setPullPct(0);
-    setPullMsg("Conectando…");
-    try {
-      await pullModel((p: PullProgress) => {
-        if (p.error) {
-          setPullMsg("Error: " + p.error);
-          return;
-        }
-        if (p.total > 0) {
-          setPullPct(Math.round((p.completed / p.total) * 100));
-          const gb = (n: number) => (n / 1073741824).toFixed(1);
-          setPullMsg(`Descargando… ${gb(p.completed)} / ${gb(p.total)} GB`);
-        } else {
-          setPullMsg(p.status || "Preparando…");
-        }
-      });
-      const ready = await isModelReady();
-      setAiAvailable(ready);
-      if (ready) {
-        setUseAiImport(true); // si se ha molestado en bajarlo, lo quiere usar
-        setPullMsg("");
-      }
-    } catch (e) {
-      console.error(e);
-      setPullMsg("No se pudo descargar el modelo. ¿Hay conexión?");
-    } finally {
-      setPulling(false);
-    }
-  }
-
-  // El aviso "sin clasificar" solo vive en Importar, tras importar.
-  useEffect(() => {
-    if (screen !== "importar") setImportReminder(false);
-  }, [screen]);
-
   // Recordatorio flotante en Candidatos: aparece al entrar y se va solo.
   useEffect(() => {
     if (screen !== "candidatos") {
@@ -310,7 +180,8 @@ function App() {
       }
       await refreshFilters();
       if (selectedId != null) setTags(await listCandidateTags(selectedId));
-      setImportReminder(false);
+      // El aviso "sin clasificar" (en Importar) desaparece solo: se muestra con
+      // `importReminder && unclassifiedCount > 0`, y esto deja el contador en 0.
       setClassifyMsg(`Clasificados ${tagged} de ${all.length} CVs`);
     } catch (e) {
       console.error(e);
@@ -362,10 +233,6 @@ function App() {
     }
   }
 
-  function set<K extends keyof CandidateForm>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
   // ---- Búsqueda ----
   async function doSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -398,164 +265,6 @@ function App() {
     setResults([]);
     setHasSearched(false);
     setSearchStatus("");
-  }
-
-  // ---- Importación ----
-  // ¿Es un CV admitido? (PDF o Word). Filtra lo que se suelte por arrastre.
-  function isCvFile(f: File): boolean {
-    return /\.(pdf|docx)$/i.test(f.name);
-  }
-
-  // Núcleo de "importar y revisar uno" (lo usan el botón y el arrastre).
-  async function processSingleFile(file: File) {
-    setFileName(file.name);
-    setCurrentFile(file);
-    setExtractedText("");
-    setExtractError("");
-    setSaveError("");
-    setExtracting(true);
-    try {
-      const text = await extractText(file);
-      setExtractedText(text);
-      setForm({ ...emptyForm, ...guessFields(text, file.name) });
-    } catch (err) {
-      setExtractError(String(err));
-    } finally {
-      setExtracting(false);
-    }
-  }
-
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) await processSingleFile(file);
-  }
-
-  // Núcleo del "importar en lote".
-  async function processBatch(files: File[]) {
-    if (files.length === 0) return;
-    setBatchRunning(true);
-    setBatchTotal(files.length);
-    setBatchDone(0);
-    setBatchErrors([]);
-    const errors: { name: string; error: string }[] = [];
-    for (const file of files) {
-      try {
-        const text = await extractText(file);
-        const g = guessFields(text, file.name);
-
-        // Base: las reglas de siempre. Fiables para email/teléfono/enlaces,
-        // flojas para puesto/estudios/skills (el techo que documentamos).
-        let fullName = g.full_name;
-        let location = g.location;
-        let headline = ""; // las reglas nunca tuvieron este campo
-        let education = g.education;
-        let skills = splitList(g.skills);
-        let languages = splitList(g.languages);
-
-        // IA opcional: solo mejora los campos de LENGUAJE (donde las reglas
-        // fallan). Los años de experiencia NUNCA vienen del LLM — eso es
-        // aritmética, y ya la calcula detectYears() de forma determinista
-        // (ver Diario, entrada 29.4). Si la IA falla, seguimos con las
-        // reglas sin más: degradar con elegancia, nunca romper la importación.
-        if (useAiImport) {
-          try {
-            const ai = await ollamaExtract(AI_MODEL, text);
-            if (ai.fields) {
-              if (ai.fields.full_name) fullName = ai.fields.full_name;
-              if (ai.fields.location) location = ai.fields.location;
-              if (ai.fields.last_position) headline = ai.fields.last_position;
-              if (ai.fields.education) education = ai.fields.education;
-              if (ai.fields.skills.length > 0) skills = ai.fields.skills;
-              if (ai.fields.languages.length > 0) languages = ai.fields.languages;
-            }
-          } catch (err) {
-            console.error("ollamaExtract:", err);
-          }
-        }
-
-        let filePath: string | null = null;
-        try {
-          filePath = await saveCvFile(file);
-        } catch (err) {
-          console.error("save_cv:", err);
-        }
-        const gy = Number(g.years_experience);
-        await saveCandidate({
-          full_name: fullName, email: g.email, phone: g.phone,
-          location, headline,
-          years_experience: g.years_experience && !Number.isNaN(gy) ? gy : null,
-          education,
-          links: g.links, raw_text: text, source_file: file.name,
-          file_path: filePath,
-          skills, languages,
-        });
-      } catch (err) {
-        errors.push({ name: file.name, error: String(err) });
-      }
-      setBatchDone((d) => d + 1);
-    }
-    setBatchErrors(errors);
-    setBatchRunning(false);
-    setBatchKey((k) => k + 1);
-    setShowBatchMsg(true);
-    setImportReminder(true);
-    await refreshCandidates();
-    await refreshFilters();
-  }
-
-  async function onBatchChange(e: React.ChangeEvent<HTMLInputElement>) {
-    await processBatch(Array.from(e.target.files ?? []).filter(isCvFile));
-  }
-
-  // Arrastre de archivos a las zonas de importación.
-  function onDropFiles(
-    e: React.DragEvent,
-    mode: "single" | "batch",
-  ) {
-    e.preventDefault();
-    setDragOver(null);
-    const files = Array.from(e.dataTransfer.files).filter(isCvFile);
-    if (files.length === 0) return;
-    if (mode === "single") processSingleFile(files[0]);
-    else processBatch(files);
-  }
-
-  async function onSave() {
-    setSaving(true);
-    setSaveError("");
-    try {
-      const raw = form.years_experience.trim().replace(",", ".");
-      const years = raw === "" ? null : Number(raw);
-      let filePath: string | null = null;
-      if (currentFile) {
-        try {
-          filePath = await saveCvFile(currentFile);
-        } catch (err) {
-          console.error("save_cv:", err);
-        }
-      }
-      const cleanYears = years !== null && !Number.isNaN(years) ? years : null;
-      await saveCandidate({
-        full_name: form.full_name, email: form.email, phone: form.phone,
-        location: form.location, headline: form.headline,
-        years_experience: cleanYears,
-        education: form.education, links: form.links,
-        raw_text: extractedText, source_file: fileName,
-        file_path: filePath,
-        skills: splitList(form.skills), languages: splitList(form.languages),
-      });
-      setForm(emptyForm);
-      setExtractedText("");
-      setFileName("");
-      setCurrentFile(null);
-      setFileKey((k) => k + 1);
-      await refreshCandidates();
-      await refreshFilters();
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
   }
 
   // ---- Detalle / edición / notas / borrado ----
@@ -1501,209 +1210,12 @@ function App() {
       )}
 
       {screen === "importar" && (
-        <div className="screen">
-          <div className="screen__head">
-            <h1 className="screen__title">Importar</h1>
-            <p className="screen__sub">
-              Arrastra tus CVs y se convierten en fichas. Todo local, nada sale a la nube.
-            </p>
-          </div>
-
-          {aiAvailable ? (
-            <label className="ai-import-toggle">
-              <input
-                type="checkbox"
-                checked={useAiImport}
-                onChange={(e) => setUseAiImport(e.target.checked)}
-                disabled={batchRunning}
-              />
-              <span>
-                Rellenar con IA (más lento — ~30-40 s por CV, pero saca puesto,
-                estudios y skills que las reglas se dejan)
-              </span>
-            </label>
-          ) : (
-            <div className="ai-download">
-              {pulling ? (
-                <>
-                  <div className="import-progress__bar">
-                    <div
-                      className="import-progress__fill"
-                      style={{ width: `${pullPct}%` }}
-                    />
-                  </div>
-                  <span className="ai-download__msg">{pullMsg}</span>
-                </>
-              ) : (
-                <>
-                  <span className="ai-download__msg">
-                    ¿Quieres que la IA rellene las fichas (puesto, estudios,
-                    skills)? Hay que descargar el modelo una vez: <strong>4,7 GB</strong>.
-                    Se queda en tu equipo y funciona sin internet a partir de entonces.
-                  </span>
-                  <button className="btn-sm" onClick={downloadModel} disabled={batchRunning}>
-                    Descargar modelo de IA
-                  </button>
-                  {pullMsg && <span className="ai-download__msg">{pullMsg}</span>}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Zona de arrastre principal (lote) */}
-          <label
-            className={
-              "dropzone" +
-              (dragOver === "batch" ? " is-over" : "") +
-              (batchRunning ? " is-busy" : "")
-            }
-            onDragOver={(e) => {
-              e.preventDefault();
-              if (!batchRunning) setDragOver("batch");
-            }}
-            onDragLeave={() => setDragOver(null)}
-            onDrop={(e) => !batchRunning && onDropFiles(e, "batch")}
-          >
-            <input
-              key={batchKey}
-              type="file"
-              multiple
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              onChange={onBatchChange}
-              disabled={batchRunning}
-              hidden
-            />
-            {/* Olaz corriendo con los CVs: encaja con "arrastra tus CVs aquí".
-                Se acelera mientras importa — el movimiento cuenta que está
-                trabajando, sin necesidad de otro texto. */}
-            <OlazSprite
-              name="olaz-run"
-              frames={6}
-              fps={batchRunning ? 12 : 8}
-              height={132}
-              className="dropzone__olaz"
-              alt="Olaz corriendo con los CVs"
-            />
-            <div className="dropzone__title">Arrastra tus CVs aquí</div>
-            <div className="dropzone__sub">
-              o <span className="dropzone__link">haz clic para elegir</span>
-              <span className="dropzone__dot">·</span> PDF o Word
-              <span className="dropzone__dot">·</span> varios a la vez
-            </div>
-          </label>
-
-          {/* Importar una carpeta entera (usa webkitdirectory) */}
-          <button
-            type="button"
-            className="folder-btn"
-            onClick={() => folderRef.current?.click()}
-            disabled={batchRunning}
-          >
-            📁 …o importar una carpeta entera de CVs
-          </button>
-          <input
-            ref={folderRef}
-            type="file"
-            multiple
-            onChange={onBatchChange}
-            hidden
-            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-          />
-
-          {/* Progreso del lote */}
-          {batchRunning && (
-            <div className="import-progress">
-              <div className="import-progress__bar">
-                <div
-                  className="import-progress__fill"
-                  style={{
-                    width: `${batchTotal ? (batchDone / batchTotal) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-              <div className="import-progress__label">
-                Procesando {batchDone} / {batchTotal}…
-              </div>
-            </div>
-          )}
-          {!batchRunning && batchTotal > 0 && showBatchMsg && (
-            <p className="db-ok db-ok--fade">
-              ✅ Importados {batchTotal - batchErrors.length} de {batchTotal}
-              {batchErrors.length > 0 && ` · ${batchErrors.length} con error`}
-            </p>
-          )}
-          {batchErrors.length > 0 && (
-            <ul className="batch-errors">
-              {batchErrors.map((er) => (
-                <li key={er.name}>{er.name}: {er.error}</li>
-              ))}
-            </ul>
-          )}
-
-          {importReminder && unclassifiedCount > 0 && (
-            <div className="classify-reminder">
-              <span>
-                Tienes <strong>{unclassifiedCount}</strong>{" "}
-                {unclassifiedCount === 1 ? "CV sin clasificar" : "CVs sin clasificar"}.
-              </span>
-              <button
-                className="btn-sm classify-btn"
-                onClick={onAutoClassify}
-                disabled={classifying}
-              >
-                {classifying ? "Clasificando…" : "✨ Clasificar automáticamente"}
-              </button>
-            </div>
-          )}
-
-          {/* Opción secundaria: importar uno y revisarlo */}
-          <div className="import-alt">
-            <span className="import-alt__text">
-              ¿Prefieres revisar los datos antes de guardar?
-            </span>
-            <label
-              className={"btn-file" + (dragOver === "single" ? " is-over" : "")}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver("single");
-              }}
-              onDragLeave={() => setDragOver(null)}
-              onDrop={(e) => onDropFiles(e, "single")}
-            >
-              <input
-                key={fileKey}
-                type="file"
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={onFileChange}
-                hidden
-              />
-              Importar uno y revisar
-            </label>
-          </div>
-          {extracting && <p className="card__intro">Leyendo el documento…</p>}
-          {extractError && <p className="db-error">Error: {extractError}</p>}
-
-          {extractedText && (
-            <section className="card">
-              <p className="card__title">Revisar la ficha</p>
-              <p className="card__intro">
-                Auto-rellenado desde <strong>{fileName}</strong> (
-                {extractedText.length} caracteres). Revisa y completa.
-              </p>
-              <CandidateFieldsForm form={form} onChange={set} />
-              <div className="actions">
-                <button onClick={onSave} disabled={saving}>
-                  {saving ? "Guardando…" : "Guardar candidato"}
-                </button>
-              </div>
-              {saveError && <p className="db-error">Error: {saveError}</p>}
-              <details className="raw-details">
-                <summary>Ver texto extraído del CV</summary>
-                <textarea className="cv-text" readOnly value={extractedText} rows={10} />
-              </details>
-            </section>
-          )}
-        </div>
+        <ImportScreen
+          imp={imp}
+          unclassifiedCount={unclassifiedCount}
+          onAutoClassify={onAutoClassify}
+          classifying={classifying}
+        />
       )}
 
       {screen === "vacantes" && <Vacancies />}
@@ -1718,64 +1230,6 @@ function App() {
         />
       )}
     </AppShell>
-  );
-}
-
-function CandidateFieldsForm({
-  form,
-  onChange,
-}: {
-  form: CandidateForm;
-  onChange: <K extends keyof CandidateForm>(key: K, value: string) => void;
-}) {
-  return (
-    <div className="form-grid">
-      <Field label="Nombre"><input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} /></Field>
-      <Field label="Email"><input value={form.email} onChange={(e) => onChange("email", e.target.value)} /></Field>
-      <Field label="Teléfono"><input value={form.phone} onChange={(e) => onChange("phone", e.target.value)} /></Field>
-      <Field label="Ubicación"><input value={form.location} onChange={(e) => onChange("location", e.target.value)} /></Field>
-      <Field label="Último puesto / titular"><input value={form.headline} onChange={(e) => onChange("headline", e.target.value)} /></Field>
-      <Field label="Años de experiencia"><input inputMode="decimal" value={form.years_experience} onChange={(e) => onChange("years_experience", e.target.value)} /></Field>
-      <Field label="Estudios"><input value={form.education} onChange={(e) => onChange("education", e.target.value)} /></Field>
-      <Field label="Enlaces (LinkedIn…)"><input value={form.links} onChange={(e) => onChange("links", e.target.value)} /></Field>
-      <Field label="Skills (separadas por comas)"><input value={form.skills} onChange={(e) => onChange("skills", e.target.value)} /></Field>
-      <Field label="Idiomas (separados por comas)"><input value={form.languages} onChange={(e) => onChange("languages", e.target.value)} /></Field>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span className="field__label">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div className="info">
-      <span className="field__label">{label}</span>
-      <span className="info__value">{value || "—"}</span>
-    </div>
-  );
-}
-
-// Muestra el % de encaje, o "Sin relación" si está por debajo del umbral.
-function MatchTag({ score }: { score: number }) {
-  if (score < RELEVANT_FLOOR) {
-    return (
-      <span className="norel" title="Sin relación clara con la búsqueda">
-        Sin relación
-      </span>
-    );
-  }
-  const band = matchBand(score);
-  return (
-    <span className={"match " + band.cls} title={band.label + " relevancia"}>
-      {(score * 100).toFixed(0)}%
-    </span>
   );
 }
 
