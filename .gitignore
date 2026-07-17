@@ -39,3 +39,11 @@ Thumbs.db
 # Referencias de diseño (capturas + paquetes) — pesan mucho, son docs
 assets/references/
 *.zip
+
+# Assets de IA del frontend (~168 MB): modelo de embeddings MiniLM + runtime
+# WASM de onnxruntime-web. No se versionan por tamaño; se regeneran con
+#   node scripts/fetch-ai-assets.mjs
+# (mismo patrón que el sidecar de Ollama en src-tauri/.gitignore). SÍ viajan
+# dentro del instalador → app 100% offline desde el primer arranque.
+public/ort/
+public/models/

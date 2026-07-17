@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "fetch-ai-assets": "node scripts/fetch-ai-assets.mjs",
+    "predev": "node scripts/fetch-ai-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/fetch-ai-assets.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

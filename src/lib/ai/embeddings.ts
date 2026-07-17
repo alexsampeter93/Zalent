@@ -4,9 +4,17 @@ import {
   type FeatureExtractionPipeline,
 } from "@huggingface/transformers";
 
-// Permitimos descargar el modelo del hub la primera vez; luego queda cacheado
-// en local (offline a partir de entonces).
-env.allowLocalModels = false;
+// OFFLINE TOTAL: ni el modelo ni el runtime salen a internet. Antes se
+// descargaban de huggingface.co (modelo) y cdn.jsdelivr.net (WASM) la primera
+// vez; ahora ambos viajan EMPOTRADOS en la app (public/models y public/ort) y
+// se cargan del propio origen. Esto es lo que permite la CSP estricta
+// `connect-src 'self'` (nada sale del equipo) y que la búsqueda funcione sin
+// red desde el primer arranque. Ver Diario, entrada 35.
+env.allowLocalModels = true; // buscar el modelo en local…
+env.allowRemoteModels = false; // …y NUNCA en el hub remoto.
+env.localModelPath = "/models/"; // servido desde public/models/ (mismo origen)
+// El runtime ONNX (WASM) también local, no desde el CDN de jsdelivr.
+if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = "/ort/";
 
 // Modelo de embeddings MULTILINGÜE (entiende español) y pequeño. Convierte
 // texto en un vector de 384 números que representa su "significado".
@@ -14,13 +22,16 @@ const MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 
 let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
 
-// Carga (y cachea) el modelo una sola vez. El callback informa del progreso
-// de descarga la primera vez.
+// Carga (y cachea) el modelo una sola vez. Fijamos `dtype: "q8"` a propósito:
+// es el que corresponde al `model_quantized.onnx` que embebemos, así lo que se
+// pide y lo que viaja en la app SIEMPRE coinciden (no dependemos del valor por
+// defecto de la librería, que podría cambiar entre versiones).
 export function getExtractor(
   onProgress?: (info: unknown) => void,
 ): Promise<FeatureExtractionPipeline> {
   if (!extractorPromise) {
     extractorPromise = pipeline("feature-extraction", MODEL, {
+      dtype: "q8",
       progress_callback: onProgress,
     });
   }
