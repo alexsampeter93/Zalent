@@ -1,0 +1,56 @@
+# Fork local de tauri-plugin-sql 2.4.0, SOLO para poder cifrar la BD con
+# SQLCipher (que el plugin oficial no soporta: ver Diario, entrada 39).
+# Recortado a únicamente SQLite (Zalent no usa MySQL ni Postgres). El único
+# cambio real de comportamiento está en src/wrapper.rs: connect() usa
+# SqliteConnectOptions con la clave de cifrado en vez de la URL simple.
+#
+# IMPORTANTE: "name" Y "links" se mantienen IDÉNTICOS al original
+# ("tauri-plugin-sql") a propósito, y deben coincidir ENTRE SÍ. Tres cosas
+# distintas que deben cuadrar las tres, o el build falla con
+# "Plugin not found" o "Permission sql:default not found":
+#   1. [package] name  -> de aquí deriva Tauri el NAMESPACE DE PERMISOS
+#      (quita el prefijo "tauri-plugin-": "tauri-plugin-sql" -> "sql").
+#   2. [package] links -> la clave que usa Cargo para exponerle al build.rs
+#      de la app (zalent) los metadatos DEP_<LINKS>_* de este plugin. Si no
+#      coincide con "name", la app no encuentra el manifest de permisos
+#      aunque el plugin lo haya generado bien (∼2h perdidas cazando esto,
+#      ver Diario entrada 39 -- por eso el comentario tan largo).
+#   3. PluginBuilder::new("sql") en src/lib.rs -> el registro en tiempo de
+#      ejecución con el que habla el JS (@tauri-apps/plugin-sql), sin tocar.
+# Al ser una dependencia por RUTA (no del registro de crates.io), no hay
+# ninguna ambigüedad por reusar el nombre "tauri-plugin-sql".
+[package]
+edition = "2021"
+rust-version = "1.77.2"
+name = "tauri-plugin-sql"
+version = "2.4.0"
+authors = ["Tauri Programme within The Commons Conservancy", "Zalent"]
+build = "build.rs"
+links = "tauri-plugin-sql"
+description = "Fork de tauri-plugin-sql con soporte SQLCipher (solo SQLite)."
+license = "Apache-2.0 OR MIT"
+
+[lib]
+name = "tauri_plugin_sql_cipher"
+path = "src/lib.rs"
+
+[dependencies]
+futures-core = "0.3"
+indexmap = { version = "2", features = ["serde"] }
+log = "0.4"
+rust_decimal = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["json", "time", "uuid", "rust_decimal", "sqlite", "runtime-tokio"] }
+tauri = { version = "2", default-features = false }
+thiserror = "2"
+time = "0.3"
+tokio = { version = "1", features = ["sync"] }
+uuid = "1"
+# La pieza que faltaba: compilar SQLite con el parche de SQLCipher. Al ser una
+# dependencia compartida con sqlx-sqlite (vía libsqlite3-sys), Cargo unifica
+# las features y sqlx también enlaza contra el SQLite ya capaz de cifrar.
+libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2.5", features = ["build"] }

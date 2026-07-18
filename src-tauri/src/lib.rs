@@ -4,7 +4,7 @@ use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use tauri::{Emitter, Manager, State};
-use tauri_plugin_sql::{Migration, MigrationKind};
+use tauri_plugin_sql_cipher::{Migration, MigrationKind};
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -788,7 +788,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(
-            tauri_plugin_sql::Builder::default()
+            tauri_plugin_sql_cipher::Builder::default()
                 .add_migrations("sqlite:zalent.db", migrations)
                 .build(),
         )
