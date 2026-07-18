@@ -35,6 +35,33 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct DbInstances(pub RwLock<HashMap<String, DbPool>>);
 
+/// La clave de cifrado de SQLCipher, si la app quiere una BD cifrada.
+///
+/// El plugin NO sabe de contraseñas ni de Argon2: solo pregunta "¿hay clave?"
+/// justo al abrir la conexión. Es la app (Zalent) quien la deriva de la
+/// contraseña maestra y la deja aquí con `app.manage(...)` al desbloquear.
+///
+/// Si nadie registra este estado, o la clave es `None`, la BD se abre SIN
+/// cifrar — exactamente igual que el plugin oficial.
+#[derive(Default)]
+pub struct DbEncryptionKey(pub std::sync::Mutex<Option<[u8; 32]>>);
+
+impl DbEncryptionKey {
+    /// La clave en el formato que espera SQLCipher: bytes crudos en
+    /// hexadecimal (`x'...'`), NO una passphrase de texto.
+    ///
+    /// Importante: sqlx interpola el valor del pragma en el SQL **sin
+    /// escaparlo** (comprobado leyendo su código), así que una clave como
+    /// texto libre con comillas o guiones rompería la consulta. En hex no
+    /// hay caracteres problemáticos. Ver Diario, entrada 39.
+    pub(crate) fn pragma_value(&self) -> Option<String> {
+        let guard = self.0.lock().ok()?;
+        let key = guard.as_ref()?;
+        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+        Some(format!("\"x'{hex}'\""))
+    }
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum LastInsertId {

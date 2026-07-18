@@ -4,9 +4,10 @@
 //
 // FORK de Zalent, solo SQLite (se quitó mysql/postgres, que Zalent no usa).
 // El único cambio de comportamiento real frente al original: connect() abre
-// con SqliteConnectOptions en vez de la URL simple, para poder pasarle la
-// clave de cifrado (PRAGMA key) más adelante. Por ahora, SIN clave: debe
-// comportarse exactamente igual que el plugin oficial. Ver Diario, entrada 39.
+// con SqliteConnectOptions (en vez de la URL simple) y, SI la app registró
+// una `DbEncryptionKey`, aplica el PRAGMA key de SQLCipher al conectar.
+// Sin clave registrada se comporta exactamente igual que el plugin oficial.
+// Ver Diario, entradas 39-42.
 
 use std::fs::create_dir_all;
 use std::str::FromStr;
@@ -39,17 +40,30 @@ impl DbPool {
 
         let conn_url = &path_mapper(app_path, conn_url);
 
-        if !Sqlite::database_exists(conn_url).await.unwrap_or(false) {
+        // ¿La app registró una clave de cifrado? (ver DbEncryptionKey). Si no,
+        // se abre sin cifrar, igual que el plugin oficial.
+        let key = _app
+            .try_state::<crate::DbEncryptionKey>()
+            .and_then(|s| s.pragma_value());
+
+        // OJO con el orden: `Sqlite::database_exists`/`create_database` abren
+        // el fichero SIN la clave, así que con una BD cifrada darían un falso
+        // "no existe" (y crearían una vacía encima). Por eso, cuando hay
+        // clave, no se llaman: `create_if_missing` ya crea la BD si hace
+        // falta, y esa vía sí lleva el PRAGMA key aplicado.
+        if key.is_none() && !Sqlite::database_exists(conn_url).await.unwrap_or(false) {
             Sqlite::create_database(conn_url).await?;
         }
 
-        // TODO(cifrado): cuando se active la clave real, añadir aquí
-        // `.pragma("key", format!("\"x'{hex}'\""))` ANTES de create_if_missing
-        // -- ver la investigación de la Entrada 39 sobre por qué debe ir en
-        // hexadecimal (sqlx no escapa el valor del pragma).
-        let opts = SqliteConnectOptions::from_str(conn_url)
+        let mut opts = SqliteConnectOptions::from_str(conn_url)
             .map_err(sqlx::Error::from)?
             .create_if_missing(true);
+        if let Some(k) = key {
+            // El PRAGMA key debe ser lo PRIMERO que se ejecuta en la conexión,
+            // antes de cualquier otra consulta: hasta que no se aplica, el
+            // fichero no es legible.
+            opts = opts.pragma("key", k);
+        }
         Ok(Self::Sqlite(SqlitePoolOptions::new().connect_with(opts).await?))
     }
 

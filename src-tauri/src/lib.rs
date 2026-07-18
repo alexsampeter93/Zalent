@@ -174,6 +174,17 @@ struct Vault {
     hash: String,
     #[serde(default)]
     enc_salt: String,
+    // ¿El fichero zalent.db está YA cifrado con SQLCipher?
+    //
+    // Es un interruptor de SEGURIDAD, no una preferencia: la clave solo se le
+    // pasa a SQLite si esto es `true`. Si fuera al revés (registrar la clave
+    // sin haber cifrado el fichero), la app intentaría abrir una BD en claro
+    // CON clave y fallaría con "file is not a database" — dejando al usuario
+    // sin acceso a sus datos reales. Solo lo pone en `true` la migración, y
+    // solo después de haber cifrado el fichero de verdad y verificado que se
+    // puede leer. Ver Diario, entrada 42.
+    #[serde(default)]
+    db_encrypted: bool,
 }
 
 fn vault_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -197,6 +208,7 @@ fn read_vault(app: &tauri::AppHandle) -> Result<Option<Vault>, String> {
         Err(_) => Ok(Some(Vault {
             hash: s.trim().to_string(),
             enc_salt: String::new(),
+            db_encrypted: false,
         })),
     }
 }
@@ -238,6 +250,9 @@ fn set_master_password(
     let vault = Vault {
         hash,
         enc_salt: enc_salt.clone(),
+        // La BD sigue en claro: poner una contraseña no la cifra por sí solo
+        // (eso lo hace la migración, aparte y a propósito).
+        db_encrypted: false,
     };
     fs::write(
         vault_path(&app)?,
@@ -260,9 +275,26 @@ fn unlock(app: tauri::AppHandle, state: State<KeyState>, password: String) -> Re
         return Ok(false);
     }
     if !vault.enc_salt.is_empty() {
-        *state.key.lock().unwrap() = Some(derive_key(&password, &vault.enc_salt)?);
+        let key = derive_key(&password, &vault.enc_salt)?;
+        *state.key.lock().unwrap() = Some(key);
+        // Y, si la BD ya está cifrada, dejársela también al plugin SQL para
+        // que pueda abrirla. El orden importa y sale bien solo?: la primera
+        // consulta a la BD ocurre DESPUÉS de desbloquear (ver Diario 41), así
+        // que para entonces la clave ya está aquí.
+        if vault.db_encrypted {
+            set_db_key(&app, Some(key));
+        }
     }
     Ok(true)
+}
+
+// Le pasa (o le quita) al plugin SQL la clave de cifrado de la BD.
+fn set_db_key(app: &tauri::AppHandle, key: Option<[u8; 32]>) {
+    if let Some(state) = app.try_state::<tauri_plugin_sql_cipher::DbEncryptionKey>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = key;
+        }
+    }
 }
 
 // Descifra TODOS los CVs (para poder quitar la contraseña sin perderlos).
@@ -311,6 +343,7 @@ fn remove_master_password(
     }
     let _ = fs::remove_file(vault_path(&app)?);
     *state.key.lock().unwrap() = None;
+    set_db_key(&app, None); // que no quede colgando en el plugin SQL
     Ok(true)
 }
 
@@ -730,6 +763,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(KeyState::default())
+        // La clave que el plugin SQL consulta al abrir la BD. Arranca vacía:
+        // se rellena al desbloquear, y solo si la BD ya está cifrada.
+        .manage(tauri_plugin_sql_cipher::DbEncryptionKey::default())
         .manage(OllamaSidecar(Mutex::new(None)))
         .setup(|app| {
             // Al arrancar, borramos las copias temporales EN CLARO que se
