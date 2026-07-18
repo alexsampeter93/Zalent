@@ -21,7 +21,9 @@ function App() {
   // Bloqueo: null = comprobando, true = bloqueada, false = abierta.
   const [locked, setLocked] = useState<boolean | null>(null);
 
-  const cand = useCandidates({ active: screen === "candidatos" });
+  // ready=false mientras se comprueba el bloqueo O mientras está bloqueada:
+  // useCandidates no debe tocar la BD hasta que sepamos que se puede abrir.
+  const cand = useCandidates({ active: screen === "candidatos", ready: locked === false });
   const imp = useImport({
     active: screen === "importar",
     onImported: cand.refreshAll,

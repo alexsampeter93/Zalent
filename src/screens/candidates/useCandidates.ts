@@ -52,7 +52,18 @@ export interface Row {
 // la FUENTE DE DATOS central de la app: la lista de candidatos y los datos de
 // filtro los comparten Importar (refresca al importar) y Ajustes (al borrar
 // todo), así que App llama a este hook una vez y les pasa lo que necesitan.
-export function useCandidates({ active }: { active: boolean }) {
+export function useCandidates({
+  active,
+  ready,
+}: {
+  active: boolean;
+  // ¿ya se puede tocar la base de datos? Falso mientras la app está
+  // comprobando el bloqueo o bloqueada. Sin esto, estos efectos consultarían
+  // SQLite ANTES de que el usuario introduzca la contraseña maestra — hoy no
+  // pasa nada porque la BD no está cifrada, pero en cuanto lo esté, esas
+  // consultas fallarían porque la clave de cifrado todavía no se conoce.
+  ready: boolean;
+}) {
   const [showCandReminder, setShowCandReminder] = useState(false);
 
   // Filtros de la tabla de Candidatos
@@ -107,22 +118,26 @@ export function useCandidates({ active }: { active: boolean }) {
   const [newNote, setNewNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
+  // Carga inicial: espera a `ready` (no a que el componente se monte) para
+  // no tocar la BD mientras la app sigue bloqueada. Solo se dispara una vez,
+  // el momento en que `ready` pasa de false a true tras desbloquear.
   useEffect(() => {
+    if (!ready) return;
     (async () => {
       await cleanupOrphans(); // limpia huérfanos de borrados antiguos
       await refreshCandidates();
       await refreshFilters();
     })();
-  }, []);
+  }, [ready]);
 
   // Al volver a Candidatos, recargar por si cambió algo en otra pantalla
   // (p.ej. asignar a ofertas o mover fases en el Pipeline).
   useEffect(() => {
-    if (active) {
+    if (active && ready) {
       refreshCandidates();
       refreshFilters();
     }
-  }, [active]);
+  }, [active, ready]);
 
   // Recordatorio flotante en Candidatos: aparece al entrar y se va solo.
   useEffect(() => {

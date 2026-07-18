@@ -113,9 +113,32 @@ beforeEach(() => {
 
 describe("useCandidates: carga inicial", () => {
   it("carga la lista de candidatos al montar", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     expect(result.current.rows.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it("con ready=false NO toca la base de datos todavía (app bloqueada)", async () => {
+    const { result } = renderHook(() => useCandidates({ active: true, ready: false }));
+    // Un respiro para que, SI el hook fuera a consultar, ya lo hubiera hecho.
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+
+    expect(listCandidates).not.toHaveBeenCalled();
+    expect(cleanupOrphans).not.toHaveBeenCalled();
+    expect(result.current.rows).toEqual([]);
+  });
+
+  it("al pasar ready de false a true (desbloquear), carga la BD en ese momento", async () => {
+    const { result, rerender } = renderHook(
+      ({ ready }) => useCandidates({ active: true, ready }),
+      { initialProps: { ready: false } },
+    );
+    expect(listCandidates).not.toHaveBeenCalled();
+
+    rerender({ ready: true }); // equivale a desbloquear con éxito
+
+    await waitFor(() => expect(result.current.rows).toHaveLength(2));
+    expect(cleanupOrphans).toHaveBeenCalled();
   });
 });
 
@@ -127,7 +150,7 @@ describe("useCandidates: selección y ficha", () => {
     vi.mocked(listCandidateTags).mockResolvedValue(["Inglés"]);
     vi.mocked(listCandidateVacancies).mockResolvedValue([{ id: 5, title: "Backend Sr.", stage: "screening" }]);
 
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
 
     await act(async () => {
@@ -144,7 +167,7 @@ describe("useCandidates: selección y ficha", () => {
 
 describe("useCandidates: etiquetas", () => {
   it("onAddTag añade la etiqueta al estado y la persiste", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     await act(async () => { await result.current.selectCandidate(1); });
 
@@ -156,7 +179,7 @@ describe("useCandidates: etiquetas", () => {
 
   it("onAddTag no añade una etiqueta duplicada", async () => {
     vi.mocked(listCandidateTags).mockResolvedValue(["Inglés"]);
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     await act(async () => { await result.current.selectCandidate(1); });
 
@@ -168,7 +191,7 @@ describe("useCandidates: etiquetas", () => {
 
   it("onRemoveTag quita la etiqueta del estado y la persiste", async () => {
     vi.mocked(listCandidateTags).mockResolvedValue(["Inglés", "Francés"]);
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     await act(async () => { await result.current.selectCandidate(1); });
 
@@ -181,7 +204,7 @@ describe("useCandidates: etiquetas", () => {
 
 describe("useCandidates: borrado y voto", () => {
   it("onDelete borra el candidato y vuelve a la lista", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     await act(async () => { await result.current.selectCandidate(1); });
     expect(result.current.selectedId).toBe(1);
@@ -195,7 +218,7 @@ describe("useCandidates: borrado y voto", () => {
 
   it("onVote: pulsar el mismo voto otra vez lo quita", async () => {
     vi.mocked(listVotes).mockResolvedValue([{ candidate_id: 1, vote: 1 }]);
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     await act(async () => { await result.current.selectCandidate(1); });
     expect(result.current.votes.get(1)).toBe(1);
@@ -212,7 +235,7 @@ describe("useCandidates: búsqueda", () => {
     vi.mocked(search).mockResolvedValue([
       { id: 2, full_name: "Bruno Ruiz", email: null, headline: "Frontend", source_file: "bruno.pdf", score: 0.8, evidence: "", matched: [], why: "" },
     ]);
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
 
     act(() => { result.current.setQuery("frontend react"); });
@@ -227,7 +250,7 @@ describe("useCandidates: búsqueda", () => {
   });
 
   it("clearSearch vacía la consulta y sale del modo búsqueda", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     act(() => { result.current.setQuery("algo"); });
     await act(async () => { await result.current.doSearch(); });
@@ -241,7 +264,7 @@ describe("useCandidates: búsqueda", () => {
 
 describe("useCandidates: filtros", () => {
   it("filterMissing='email' deja fuera a los candidatos que sí tienen email", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
 
     act(() => { result.current.setFilterMissing("email"); });
@@ -253,7 +276,7 @@ describe("useCandidates: filtros", () => {
 
 describe("useCandidates: selección múltiple", () => {
   it("onBulkDelete borra los seleccionados y sale del modo selección", async () => {
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
 
     act(() => {
@@ -279,7 +302,7 @@ describe("useCandidates: clasificación automática", () => {
     ]);
     vi.mocked(suggestTags).mockReturnValue(["3-5 años exp"]);
 
-    const { result } = renderHook(() => useCandidates({ active: true }));
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
 
     await act(async () => { await result.current.onAutoClassify(); });
