@@ -10,7 +10,7 @@ const CHUNK_WORDS = 60;
 const OVERLAP = 12;
 const MAX_CHUNKS = 40; // tope por candidato, por si un CV es larguísimo
 
-function chunkText(text: string): string[] {
+export function chunkText(text: string): string[] {
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   if (words.length === 0) return [];
   if (words.length <= CHUNK_WORDS) return [words.join(" ")];
@@ -112,7 +112,7 @@ export function norm(s: string): string {
     .trim();
 }
 
-function queryTerms(query: string): string[] {
+export function queryTerms(query: string): string[] {
   return Array.from(
     new Set(
       norm(query)
