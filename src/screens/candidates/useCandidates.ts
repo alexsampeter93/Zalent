@@ -21,6 +21,7 @@ import {
 } from "../../lib/notes";
 import { indexAllCandidates, search, type SearchHit } from "../../lib/ai/search";
 import { reportError } from "../../lib/errors";
+import { exportCandidatesCsv } from "../../lib/exportCandidates";
 import {
   listVacancies,
   listAllMemberships,
@@ -565,6 +566,28 @@ export function useCandidates({
           return b.id - a.id; // recientes
         });
 
+  // ---- Exportar ----
+  // Exporta lo que el usuario está VIENDO (o lo que ha seleccionado), no la
+  // base entera: si has filtrado por una oferta, esperas el fichero de esa
+  // oferta, no de todo. La selección múltiple manda sobre los filtros: si has
+  // marcado candidatos a mano, es que quieres exactamente esos.
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState("");
+  async function onExport() {
+    setExporting(true);
+    setExportMsg("");
+    try {
+      const ids =
+        selectedIds.size > 0 ? [...selectedIds] : visibleRows.map((r) => r.id);
+      const { path, count } = await exportCandidatesCsv(ids);
+      setExportMsg(`✅ ${count} candidato(s) exportados a ${path}`);
+    } catch (e) {
+      reportError("No se pudo exportar el CSV", e);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
   const relevantCount = searchMode
@@ -597,6 +620,8 @@ export function useCandidates({
     notes, newNote, setNewNote, savingNote,
     selectCandidate, onAddTag, onRemoveTag, backToList, startEdit, setEditField,
     onUpdate, onDelete, onAnonymize, onOfferStageChange, onAddNote, onDeleteNote, onVote,
+    // exportar
+    exporting, exportMsg, onExport,
     // avisos y derivados
     showCandReminder, searchMode, rows, filtersActive, visibleRows,
     selectedHit, relevantCount, unclassifiedCount,

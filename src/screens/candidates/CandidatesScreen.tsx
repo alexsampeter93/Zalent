@@ -36,6 +36,7 @@ export function CandidatesScreen({
     tags, onRemoveTag, tagInput, setTagInput, onAddTag, selectedHit,
     deleting, onDelete, editForm, setEditField, savingEdit, onUpdate, setEditing,
     notes, newNote, setNewNote, onAddNote, savingNote, onDeleteNote,
+    exporting, exportMsg, onExport,
   } = cand;
 
   return (
@@ -200,6 +201,18 @@ export function CandidatesScreen({
             {selectionMode ? "Cancelar selección" : "Seleccionar"}
           </button>
           <button
+            className="btn-sm"
+            onClick={onExport}
+            disabled={exporting || visibleRows.length === 0}
+            title={
+              selectedIds.size > 0
+                ? `Exporta a CSV los ${selectedIds.size} candidatos seleccionados`
+                : "Exporta a CSV los candidatos que estás viendo, con los filtros aplicados"
+            }
+          >
+            {exporting ? "Exportando…" : "⬇ Exportar CSV"}
+          </button>
+          <button
             className="btn-sm classify-btn"
             onClick={onAutoClassify}
             disabled={classifying}
@@ -208,6 +221,7 @@ export function CandidatesScreen({
             {classifying ? "Clasificando…" : "✨ Clasificar automáticamente"}
           </button>
           {classifyMsg && <span className="classify-msg">{classifyMsg}</span>}
+          {exportMsg && <span className="classify-msg">{exportMsg}</span>}
         </div>
       )}
 

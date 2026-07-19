@@ -205,6 +205,49 @@ export async function listCandidates(): Promise<CandidateRow[]> {
   );
 }
 
+// Ficha completa y APLANADA de cada candidato, para exportar.
+//
+// Skills, idiomas, etiquetas y ofertas están en tablas aparte (uno-a-muchos),
+// pero un CSV tiene una fila por candidato: se juntan en una sola celda con
+// `group_concat`. Se hace en SQL y no en JavaScript para no lanzar cuatro
+// consultas por candidato (con 500 candidatos serían 2.000 viajes a la base).
+export interface CandidateExportRow {
+  id: number;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  headline: string | null;
+  years_experience: number | null;
+  education: string | null;
+  links: string | null;
+  status: string;
+  created_at: string;
+  source_file: string | null;
+  skills: string | null;
+  languages: string | null;
+  tags: string | null;
+  vacancies: string | null;
+}
+
+export async function listForExport(): Promise<CandidateExportRow[]> {
+  const db = await getDb();
+  return db.select<CandidateExportRow[]>(
+    `SELECT c.id, c.full_name, c.email, c.phone, c.location, c.headline,
+            c.years_experience, c.education, c.links, c.status, c.created_at,
+            c.source_file,
+            (SELECT group_concat(name, ', ')  FROM skills     WHERE candidate_id = c.id) AS skills,
+            (SELECT group_concat(name, ', ')  FROM languages  WHERE candidate_id = c.id) AS languages,
+            (SELECT group_concat(tag, ', ')   FROM candidate_tags WHERE candidate_id = c.id) AS tags,
+            (SELECT group_concat(v.title, ', ')
+               FROM candidate_vacancy cv
+               JOIN vacancies v ON v.id = cv.vacancy_id
+              WHERE cv.candidate_id = c.id) AS vacancies
+       FROM candidates c
+      ORDER BY c.id DESC`,
+  );
+}
+
 // Datos mínimos de todos los candidatos para clasificarlos en lote.
 export async function listForClassification(): Promise<
   { id: number; raw_text: string | null; years_experience: number | null }[]

@@ -950,6 +950,61 @@ async fn db_transaction(
     Ok(ids)
 }
 
+// Guarda un fichero exportado y devuelve dónde quedó.
+//
+// Va a Descargas, que es donde el usuario espera encontrar algo que "se ha
+// bajado" y una carpeta que siempre existe y es escribible (a diferencia de
+// Archivos de programa). Si no se puede resolver, se cae a Documentos y por
+// último a la carpeta de datos de la app: exportar no debe fallar por no tener
+// dónde escribir.
+#[tauri::command]
+fn save_export(
+    app: tauri::AppHandle,
+    filename: String,
+    contents: String,
+) -> Result<String, String> {
+    // `filename` viene de la interfaz, así que NO se usa tal cual: nos quedamos
+    // solo con el nombre del fichero. Si trajera "../../algo" o una ruta
+    // absoluta, escribiríamos fuera de la carpeta prevista.
+    let name = std::path::Path::new(&filename)
+        .file_name()
+        .ok_or("nombre de fichero inválido")?
+        .to_string_lossy()
+        .to_string();
+
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("no se encontró una carpeta donde guardar: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    // Si ya existe, no lo pisamos: exportar dos veces seguidas no debe borrar
+    // la exportación anterior sin avisar.
+    let mut path = dir.join(&name);
+    if path.exists() {
+        let stem = std::path::Path::new(&name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "export".into());
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .map(|s| format!(".{}", s.to_string_lossy()))
+            .unwrap_or_default();
+        for n in 2..1000 {
+            let candidate = dir.join(format!("{stem} ({n}){ext}"));
+            if !candidate.exists() {
+                path = candidate;
+                break;
+            }
+        }
+    }
+
+    fs::write(&path, contents).map_err(|e| format!("no se pudo escribir el fichero: {e}"))?;
+    Ok(path.display().to_string())
+}
+
 #[derive(Deserialize)]
 struct ChunkInput {
     idx: i64,
@@ -1744,6 +1799,7 @@ pub fn run() {
             store_chunks,
             score_chunks,
             db_transaction,
+            save_export,
             ollama_status,
             ollama_extract,
             ollama_pull
