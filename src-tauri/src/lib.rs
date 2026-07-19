@@ -324,12 +324,17 @@ fn decrypt_all_cvs(app: &tauri::AppHandle, key: &[u8; 32]) -> Result<usize, Stri
     Ok(count)
 }
 
-// Quita la contraseña (tras verificar). Si hay archivos cifrados, los DESCIFRA
-// antes (para no dejarlos inaccesibles). Devuelve false si la contraseña falla.
+// Quita la contraseña (tras verificar). DESCIFRA antes todo lo que estuviera
+// cifrado con ella — los archivos de CV y, si lo estaba, la base de datos —
+// para no dejar nada inaccesible. Devuelve false si la contraseña falla.
+//
+// El orden importa: primero descifrar, y solo si TODO va bien borrar el vault.
+// Si se borrara antes, se perdería la sal de cifrado y con ella la única forma
+// de derivar la clave: los datos quedarían ilegibles para siempre.
 #[tauri::command]
-fn remove_master_password(
+async fn remove_master_password(
     app: tauri::AppHandle,
-    state: State<KeyState>,
+    state: State<'_, KeyState>,
     password: String,
 ) -> Result<bool, String> {
     let vault = match read_vault(&app)? {
@@ -341,6 +346,13 @@ fn remove_master_password(
     }
     if !vault.enc_salt.is_empty() {
         let key = derive_key(&password, &vault.enc_salt)?;
+        // 1) La BASE DE DATOS. Si está cifrada y no la descifráramos aquí,
+        //    al borrar el vault el usuario perdería el acceso a TODOS sus
+        //    datos: el fichero seguiría cifrado y ya no habría con qué abrirlo.
+        if vault.db_encrypted {
+            rewrite_db_encryption(&app, Some(key), None).await?;
+        }
+        // 2) Los archivos de CV.
         decrypt_all_cvs(&app, &key)?;
     }
     let _ = fs::remove_file(vault_path(&app)?);
@@ -488,12 +500,157 @@ fn remove_wal_files(db: &std::path::Path) {
     }
 }
 
+// Reescribe el fichero de la BD CAMBIANDO su cifrado, en cualquiera de los dos
+// sentidos. Es la misma coreografía en ambos casos, y por eso está en una sola
+// función: duplicarla sería duplicar también el riesgo de que una de las dos
+// copias se quede sin alguna de las salvaguardas.
+//
+//   from = None            -> el fichero está en claro ahora
+//   from = Some(clave)     -> está cifrado con esa clave
+//   to   = None            -> quedará en CLARO   (descifrar)
+//   to   = Some(clave)     -> quedará CIFRADO    (cifrar)
+//
+// Devuelve (nº de tablas, nº de filas, ruta de la copia de seguridad).
+async fn rewrite_db_encryption(
+    app: &tauri::AppHandle,
+    from: Option<[u8; 32]>,
+    to: Option<[u8; 32]>,
+) -> Result<(usize, i64, std::path::PathBuf), String> {
+    let db = db_file(app)?;
+    if !db.exists() {
+        return Err(format!("no se encuentra la base de datos en {}", db.display()));
+    }
+    // Comprobación independiente del estado real del fichero (no de la marca
+    // en vault.json): si no coinciden, algo va mal y es mejor no tocar nada.
+    let plano = looks_plaintext(&db)?;
+    if from.is_none() && !plano {
+        return Err("se esperaba una BD en claro, pero el fichero ya parece cifrado".into());
+    }
+    if from.is_some() && plano {
+        return Err("se esperaba una BD cifrada, pero el fichero está en claro".into());
+    }
+
+    // En Windows no se puede reemplazar un fichero que sigue abierto.
+    tauri_plugin_sql_cipher::close_all_pools(app).await;
+
+    // Copia de seguridad ANTES de tocar nada.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    // El nombre dice en qué estado está la copia, para no confundirse luego.
+    let etiqueta = if from.is_none() { "plano" } else { "cifrada" };
+    let backup = db.with_file_name(format!("zalent.db.{etiqueta}-{stamp}.bak"));
+    fs::copy(&db, &backup).map_err(|e| format!("no se pudo hacer la copia: {e}"))?;
+
+    // Referencia para verificar después que no se ha perdido nada.
+    let before = table_counts(&db, from.as_ref()).await?;
+
+    let tmp = db.with_file_name(format!("zalent.db.migrando-{stamp}"));
+    let _ = fs::remove_file(&tmp);
+
+    // La clave del destino, en la sintaxis que espera SQLCipher. Clave vacía
+    // ('') = destino SIN cifrar: así funciona también el camino de vuelta.
+    let dest_key = match &to {
+        Some(k) => format!("\"x'{}'\"", key_hex(k)),
+        None => "''".to_string(),
+    };
+
+    let export = async {
+        let url = format!("sqlite:{}", db.to_string_lossy());
+        let mut opts = sqlx::sqlite::SqliteConnectOptions::from_str(&url)
+            .map_err(|e| e.to_string())?
+            // create_if_missing(true) NO es para el fichero de origen (que ya
+            // existe: se comprobó arriba), sino para el ATTACH: SQLite abre la
+            // base de datos adjuntada con los MISMOS flags que la principal, así
+            // que sin permiso de creación el ATTACH no puede crear el fichero
+            // destino y falla con "unable to open database" (código 14).
+            // Comprobado con una prueba aislada. Ver Diario, entrada 42.
+            .create_if_missing(true);
+        if let Some(k) = &from {
+            opts = opts.pragma("key", format!("\"x'{}'\"", key_hex(k)));
+        }
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .map_err(|e| e.to_string())?;
+        // Las comillas simples de la ruta se escapan duplicándolas (SQL).
+        let tmp_sql = tmp.to_string_lossy().replace('\'', "''");
+        use sqlx::Executor;
+        pool.execute(format!("ATTACH DATABASE '{tmp_sql}' AS destino KEY {dest_key}").as_str())
+            .await
+            .map_err(|e| format!("ATTACH falló: {e}"))?;
+        // sqlcipher_export copia TODO (esquema + datos) al destino.
+        pool.execute("SELECT sqlcipher_export('destino')")
+            .await
+            .map_err(|e| format!("sqlcipher_export falló: {e}"))?;
+        pool.execute("DETACH DATABASE destino")
+            .await
+            .map_err(|e| format!("DETACH falló: {e}"))?;
+        pool.close().await;
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(e) = export {
+        let _ = fs::remove_file(&tmp);
+        // Reabrimos para no dejar la app sin BD por un fallo a mitad.
+        let _ = tauri_plugin_sql_cipher::reload_pools(app).await;
+        return Err(format!(
+            "{e} (tu BD original NO se ha tocado; copia en {})",
+            backup.display()
+        ));
+    }
+
+    // VERIFICAR el fichero nuevo antes de confiar en él.
+    let verify = async {
+        let plano_destino = looks_plaintext(&tmp)?;
+        match &to {
+            Some(_) if plano_destino => return Err("el fichero resultante NO está cifrado".into()),
+            None if !plano_destino => {
+                return Err("el fichero resultante debía quedar en claro y no lo está".into())
+            }
+            _ => {}
+        }
+        let after = table_counts(&tmp, to.as_ref()).await?;
+        if after != before {
+            return Err(format!(
+                "los datos no coinciden (antes: {before:?}, después: {after:?})"
+            ));
+        }
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(e) = verify {
+        let _ = fs::remove_file(&tmp);
+        let _ = tauri_plugin_sql_cipher::reload_pools(app).await;
+        return Err(format!(
+            "verificación fallida: {e}. Tu BD original NO se ha tocado (copia en {})",
+            backup.display()
+        ));
+    }
+
+    // Reemplazar (ya verificado) y limpiar los WAL del fichero viejo: un WAL
+    // que no corresponde a la BD nueva la corrompería.
+    remove_wal_files(&db);
+    fs::rename(&tmp, &db).map_err(|e| format!("no se pudo reemplazar la BD: {e}"))?;
+    remove_wal_files(&db);
+
+    // La clave que usará el plugin de ahora en adelante, ANTES de reabrir.
+    set_db_key(app, to);
+    tauri_plugin_sql_cipher::reload_pools(app).await.map_err(|e| {
+        format!("La BD se migró correctamente, pero no se pudo reabrir ({e}). Reinicia Zalent.")
+    })?;
+
+    let filas: i64 = before.values().sum();
+    Ok((before.len(), filas, backup))
+}
+
 #[tauri::command]
 async fn encrypt_database(
     app: tauri::AppHandle,
     state: State<'_, KeyState>,
 ) -> Result<String, String> {
-    // --- 1. Precondiciones (fallar pronto y sin tocar nada) ---
     // La clave se copia fuera del Mutex: no se puede sostener un guard a
     // través de un `await`.
     let key: [u8; 32] = {
@@ -504,115 +661,87 @@ async fn encrypt_database(
     if vault.db_encrypted {
         return Err("la base de datos ya está cifrada".into());
     }
-    let db = db_file(&app)?;
-    if !db.exists() {
-        return Err(format!("no se encuentra la base de datos en {}", db.display()));
-    }
-    if !looks_plaintext(&db)? {
-        return Err(
-            "el fichero no parece una BD SQLite en claro; se aborta por seguridad".into(),
-        );
-    }
 
-    // --- 2. Cerrar la BD: en Windows no se puede reemplazar un fichero abierto ---
-    tauri_plugin_sql_cipher::close_all_pools(&app).await;
+    let (tablas, filas, backup) = rewrite_db_encryption(&app, None, Some(key)).await?;
 
-    // --- 3. Copia de seguridad ANTES de nada ---
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs();
-    let backup = db.with_file_name(format!("zalent.db.plano-{stamp}.bak"));
-    fs::copy(&db, &backup).map_err(|e| format!("no se pudo hacer la copia: {e}"))?;
-
-    // --- 4. Contar filas del original (referencia para verificar) ---
-    let before = table_counts(&db, None).await?;
-
-    // --- 5. Cifrar a un fichero NUEVO con sqlcipher_export ---
-    let tmp = db.with_file_name(format!("zalent.db.cifrando-{stamp}"));
-    let _ = fs::remove_file(&tmp);
-    let export = async {
-        let url = format!("sqlite:{}", db.to_string_lossy());
-        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&url)
-            .map_err(|e| e.to_string())?
-            // create_if_missing(true) NO es para el fichero de origen (que ya
-            // existe: se comprobó arriba), sino para el ATTACH: SQLite abre la
-            // base de datos adjuntada con los MISMOS flags que la principal, así
-            // que sin permiso de creación el ATTACH no puede crear el fichero
-            // destino y falla con "unable to open database" (código 14).
-            // Comprobado con una prueba aislada. Ver Diario, entrada 42.
-            .create_if_missing(true);
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(opts)
-            .await
-            .map_err(|e| e.to_string())?;
-        // Las comillas simples de la ruta se escapan duplicándolas (SQL).
-        let tmp_sql = tmp.to_string_lossy().replace('\'', "''");
-        let hex = key_hex(&key);
-        use sqlx::Executor;
-        pool.execute(format!("ATTACH DATABASE '{tmp_sql}' AS enc KEY \"x'{hex}'\"").as_str())
-            .await
-            .map_err(|e| format!("ATTACH falló: {e}"))?;
-        // sqlcipher_export copia TODO (esquema + datos) al destino cifrado.
-        pool.execute("SELECT sqlcipher_export('enc')")
-            .await
-            .map_err(|e| format!("sqlcipher_export falló: {e}"))?;
-        pool.execute("DETACH DATABASE enc")
-            .await
-            .map_err(|e| format!("DETACH falló: {e}"))?;
-        pool.close().await;
-        Ok::<(), String>(())
-    }
-    .await;
-    if let Err(e) = export {
-        let _ = fs::remove_file(&tmp);
-        return Err(format!("{e} (tu BD original NO se ha tocado; copia en {})", backup.display()));
-    }
-
-    // --- 6. VERIFICAR el fichero nuevo antes de confiar en él ---
-    let verify = async {
-        if looks_plaintext(&tmp)? {
-            return Err("el fichero resultante NO está cifrado".into());
-        }
-        let after = table_counts(&tmp, Some(&key)).await?;
-        if after != before {
-            return Err(format!(
-                "los datos no coinciden tras cifrar (antes: {before:?}, después: {after:?})"
-            ));
-        }
-        Ok::<(), String>(())
-    }
-    .await;
-    if let Err(e) = verify {
-        let _ = fs::remove_file(&tmp);
-        return Err(format!(
-            "verificación fallida: {e}. Tu BD original NO se ha tocado (copia en {})",
-            backup.display()
-        ));
-    }
-
-    // --- 7. Reemplazar (ya verificado) y limpiar los WAL del fichero viejo ---
-    remove_wal_files(&db);
-    fs::rename(&tmp, &db).map_err(|e| format!("no se pudo reemplazar la BD: {e}"))?;
-    remove_wal_files(&db);
-
-    // --- 8. Marcar y entregar la clave al plugin ---
+    // La marca se pone SOLO después de que todo haya salido bien.
     vault.db_encrypted = true;
     fs::write(
         vault_path(&app)?,
         serde_json::to_string(&vault).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    set_db_key(&app, Some(key));
 
-    let tablas: i64 = before.values().sum();
     Ok(format!(
-        "Base de datos cifrada correctamente ({} tablas, {} filas). Copia sin cifrar guardada en: {}",
-        before.len(),
-        tablas,
+        "{tablas} tablas y {filas} filas cifradas. Copia sin cifrar guardada en: {}",
         backup.display()
     ))
+}
+
+// Estado del cifrado de la BD, para que Ajustes sepa qué enseñar.
+#[derive(Serialize)]
+pub struct DbEncryptionStatus {
+    encrypted: bool,
+    // Copias SIN CIFRAR que dejó la migración. Son un arma de doble filo: te
+    // salvan si algo salió mal, pero mientras existan hay datos personales en
+    // claro en el disco — justo lo que el cifrado pretende evitar. Por eso se
+    // muestran en la interfaz y se pueden borrar desde ahí.
+    backups: Vec<String>,
+    backup_bytes: u64,
+}
+
+fn plaintext_backups(app: &tauri::AppHandle) -> Result<Vec<std::path::PathBuf>, String> {
+    let dir = db_file(app)?
+        .parent()
+        .ok_or("ruta de BD inválida")?
+        .to_path_buf();
+    let mut out = Vec::new();
+    if !dir.exists() {
+        return Ok(out);
+    }
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if name.starts_with("zalent.db.plano-") && name.ends_with(".bak") {
+            out.push(path);
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+#[tauri::command]
+fn db_encryption_status(app: tauri::AppHandle) -> Result<DbEncryptionStatus, String> {
+    let encrypted = read_vault(&app)?.map(|v| v.db_encrypted).unwrap_or(false);
+    let paths = plaintext_backups(&app)?;
+    let backup_bytes = paths
+        .iter()
+        .filter_map(|p| fs::metadata(p).ok().map(|m| m.len()))
+        .sum();
+    Ok(DbEncryptionStatus {
+        encrypted,
+        backups: paths.iter().map(|p| p.display().to_string()).collect(),
+        backup_bytes,
+    })
+}
+
+// Borra las copias SIN CIFRAR de la BD. Solo tiene sentido (y solo se permite)
+// cuando la BD ya está cifrada y el usuario ha comprobado que todo va bien:
+// hasta entonces esas copias son su red de seguridad.
+#[tauri::command]
+fn delete_plaintext_backups(app: tauri::AppHandle) -> Result<usize, String> {
+    let vault = read_vault(&app)?.ok_or("no hay contraseña maestra configurada")?;
+    if !vault.db_encrypted {
+        return Err(
+            "la base de datos aún no está cifrada: esas copias son la única copia de tus datos".into(),
+        );
+    }
+    let mut n = 0usize;
+    for path in plaintext_backups(&app)? {
+        fs::remove_file(&path).map_err(|e| format!("no se pudo borrar {}: {e}", path.display()))?;
+        n += 1;
+    }
+    Ok(n)
 }
 
 // ============================================================================
@@ -1068,6 +1197,8 @@ pub fn run() {
             crypto_selftest,
             encrypt_all_cvs,
             encrypt_database,
+            db_encryption_status,
+            delete_plaintext_backups,
             ollama_status,
             ollama_extract,
             ollama_pull

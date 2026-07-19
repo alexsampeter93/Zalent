@@ -7,6 +7,10 @@ import {
   removeMasterPassword,
   cryptoSelftest,
   encryptAllCvs,
+  dbEncryptionStatus,
+  encryptDatabase,
+  deletePlaintextBackups,
+  type DbEncryptionStatus,
 } from "../lib/lock";
 import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
@@ -291,7 +295,183 @@ function SecuritySection() {
           {encMsg && <p className="card__hint">{encMsg}</p>}
         </section>
       )}
+
+      {hasPw && <DatabaseEncryptionCard />}
     </>
+  );
+}
+
+// Cifrado de la BASE DE DATOS (SQLCipher). Aparte del cifrado de archivos:
+// aquello protege los PDF/Word originales; esto protege la ficha de cada
+// candidato (nombre, email, teléfono, notas…), que vive en la base de datos.
+function DatabaseEncryptionCard() {
+  const [status, setStatus] = useState<DbEncryptionStatus | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  // Borrar las copias es IRREVERSIBLE (son la red de seguridad), así que pide
+  // confirmación igual que el resto de acciones destructivas de la app.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function refresh() {
+    try {
+      setStatus(await dbEncryptionStatus());
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function onEncrypt() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const resumen = await encryptDatabase();
+      setMsg("✅ " + resumen);
+      setConfirming(false);
+      await refresh();
+    } catch (e) {
+      setMsg("⚠️ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeleteBackups() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const n = await deletePlaintextBackups();
+      setMsg(`✅ Borrada(s) ${n} copia(s) sin cifrar. Ya no quedan datos en claro en el disco.`);
+      setConfirmingDelete(false);
+      await refresh();
+    } catch (e) {
+      setMsg("⚠️ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  return (
+    <section className="card">
+      <p className="card__title">
+        Cifrado de la base de datos {status.encrypted && "✅"}
+      </p>
+
+      {!status.encrypted ? (
+        <>
+          <p className="card__intro">
+            Los CVs cifrados protegen los archivos originales, pero las{" "}
+            <strong>fichas</strong> (nombre, email, teléfono, notas, etiquetas)
+            viven en la base de datos y hoy están <strong>en claro</strong>:
+            cualquiera con acceso a este equipo podría leerlas. Al cifrarla,
+            harán falta tu contraseña para abrirlas.
+          </p>
+          <p className="card__intro">
+            El proceso hace una <strong>copia de seguridad</strong> antes de
+            nada, cifra a un archivo nuevo, comprueba que no se pierde ningún
+            dato y solo entonces reemplaza el original. Si algo falla, tu base
+            de datos se queda como está.
+          </p>
+          {!confirming ? (
+            <div className="actions">
+              <button onClick={() => setConfirming(true)} disabled={busy}>
+                Cifrar la base de datos
+              </button>
+            </div>
+          ) : (
+            <div className="confirm-delete">
+              <p className="confirm-delete__text">
+                ¿Cifrar la base de datos con tu contraseña maestra?{" "}
+                <strong>
+                  Si olvidas la contraseña, no habrá forma de recuperar estos
+                  datos.
+                </strong>
+              </p>
+              <div className="actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setConfirming(false)}
+                  disabled={busy}
+                >
+                  Cancelar
+                </button>
+                <button onClick={onEncrypt} disabled={busy}>
+                  {busy ? "Cifrando…" : "Sí, cifrar"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="card__intro">
+          La base de datos está <strong>cifrada</strong>. Las fichas de tus
+          candidatos solo se pueden leer con tu contraseña maestra. Si quitas la
+          contraseña, se descifrará automáticamente para que no pierdas el
+          acceso.
+        </p>
+      )}
+
+      {status.backups.length > 0 && (
+        <div className="confirm-delete confirm-anon">
+          <p className="confirm-delete__text">
+            ⚠️ Queda {status.backups.length === 1 ? "una copia" : `${status.backups.length} copias`}{" "}
+            <strong>sin cifrar</strong> de la base de datos en el disco (
+            {formatBytes(status.backup_bytes)}). Son tu red de seguridad por si
+            algo hubiera ido mal, pero mientras existan{" "}
+            <strong>tus datos siguen legibles</strong> sin contraseña.
+            Compruébalo todo y bórralas.
+          </p>
+          <ul className="batch-errors">
+            {status.backups.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+          {!confirmingDelete ? (
+            <div className="actions">
+              <button
+                className="btn-danger"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={busy}
+              >
+                Borrar copias sin cifrar
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="confirm-delete__text">
+                ¿Seguro? Estas copias son lo único que te permitiría recuperar
+                tus datos si el cifrado hubiera salido mal.{" "}
+                <strong>
+                  Antes de borrarlas, comprueba que tus candidatos, notas y
+                  búsquedas funcionan con normalidad.
+                </strong>{" "}
+                No se pueden deshacer.
+              </p>
+              <div className="actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={busy}
+                >
+                  Cancelar
+                </button>
+                <button className="btn-danger" onClick={onDeleteBackups} disabled={busy}>
+                  {busy ? "Borrando…" : "Sí, borrar"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {msg && <p className="card__hint">{msg}</p>}
+    </section>
   );
 }
 

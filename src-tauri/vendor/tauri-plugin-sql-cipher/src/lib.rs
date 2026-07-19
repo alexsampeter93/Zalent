@@ -66,9 +66,8 @@ impl DbEncryptionKey {
 ///
 /// Hace falta antes de REEMPLAZAR el fichero de la base de datos en disco
 /// (la migración a cifrado): en Windows no se puede sobrescribir un fichero
-/// que sigue abierto — daría "acceso denegado". Tras llamar a esto, la app
-/// debería reiniciarse o volver a cargar la BD, porque los pools quedan
-/// cerrados.
+/// que sigue abierto — daría "acceso denegado". Tras llamar a esto hay que
+/// volver a abrirlas con [`reload_pools`], o la app se queda sin BD.
 pub async fn close_all_pools<R: Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(instances) = app.try_state::<DbInstances>() {
         let instances = instances.0.read().await;
@@ -76,6 +75,28 @@ pub async fn close_all_pools<R: Runtime>(app: &tauri::AppHandle<R>) {
             pool.close().await;
         }
     }
+}
+
+/// Vuelve a abrir las conexiones que cerró [`close_all_pools`], con la
+/// configuración actual — incluida la clave de cifrado si se registró
+/// mientras tanto.
+///
+/// Es lo que permite que, tras cifrar la BD, la app siga funcionando SIN
+/// reiniciar: un pool cerrado rechaza cualquier consulta, así que sin esto
+/// la interfaz se quedaría sin datos hasta el siguiente arranque. No re-aplica
+/// las migraciones: ya se aplicaron al cargar la BD por primera vez.
+pub async fn reload_pools<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), Error> {
+    let Some(instances) = app.try_state::<DbInstances>() else {
+        return Ok(());
+    };
+    // Las URLs de las BD abiertas (p.ej. "sqlite:zalent.db"), copiadas antes
+    // de reconectar para no sostener el lock de lectura mientras se abre.
+    let urls: Vec<String> = { instances.0.read().await.keys().cloned().collect() };
+    for url in urls {
+        let pool = DbPool::connect(&url, app).await?;
+        instances.0.write().await.insert(url, pool);
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]

@@ -31,3 +31,29 @@ export async function cryptoSelftest(): Promise<boolean> {
 export async function encryptAllCvs(): Promise<number> {
   return invoke<number>("encrypt_all_cvs");
 }
+
+// ---- Cifrado de la BASE DE DATOS (SQLCipher) ----
+
+export interface DbEncryptionStatus {
+  encrypted: boolean;
+  // Copias SIN CIFRAR que dejó la migración (rutas completas). Mientras
+  // existan, hay datos personales en claro en el disco.
+  backups: string[];
+  backup_bytes: number;
+}
+
+export async function dbEncryptionStatus(): Promise<DbEncryptionStatus> {
+  return invoke<DbEncryptionStatus>("db_encryption_status");
+}
+
+// Cifra la BD entera. Hace copia de seguridad, cifra a un fichero nuevo,
+// VERIFICA que no se ha perdido nada y solo entonces reemplaza. Devuelve un
+// resumen. Puede tardar unos segundos según el tamaño de la base.
+export async function encryptDatabase(): Promise<string> {
+  return invoke<string>("encrypt_database");
+}
+
+// Borra las copias sin cifrar. Solo se permite si la BD ya está cifrada.
+export async function deletePlaintextBackups(): Promise<number> {
+  return invoke<number>("delete_plaintext_backups");
+}
