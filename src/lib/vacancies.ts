@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { transaction } from "./tx";
 
 // Una oferta/puesto de trabajo. La empresa puede tener varias abiertas a la vez.
 export interface Vacancy {
@@ -81,10 +82,18 @@ export async function updateVacancy(
 
 // Borra la oferta y sus asignaciones. NUNCA borra candidatos ni sus CVs:
 // el almacén raíz es la fuente de verdad y permanece intacto.
+//
+// Es la ÚNICA escritura de este fichero con más de una sentencia, y por eso la
+// única que necesita ser atómica: si se borrara la oferta pero no sus
+// asignaciones, quedarían filas apuntando a una oferta que ya no existe y los
+// recuentos del Panel saldrían inflados. El resto de escrituras de aquí (y las
+// de `notes.ts` y `tags.ts`) son de una sola sentencia, que en SQLite ya es
+// atómica por sí misma: envolverlas no añadiría ninguna garantía.
 export async function deleteVacancy(id: number): Promise<void> {
-  const db = await getDb();
-  await db.execute("DELETE FROM candidate_vacancy WHERE vacancy_id = $1", [id]);
-  await db.execute("DELETE FROM vacancies WHERE id = $1", [id]);
+  await transaction([
+    ["DELETE FROM candidate_vacancy WHERE vacancy_id = $1", [id]],
+    ["DELETE FROM vacancies WHERE id = $1", [id]],
+  ]);
 }
 
 // ----- Asignaciones candidato ↔ oferta -----
