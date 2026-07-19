@@ -1,9 +1,9 @@
 import { getDb } from "../db";
-import { embed, cosine } from "./embeddings";
+import { embed } from "./embeddings";
 import { norm, STOPWORDS } from "./search";
-import { computePreference, PREF_WEIGHT } from "./preference";
+import { PREF_WEIGHT } from "./preference";
+import { scoreAgainst, type ScoredChunk } from "./vectors";
 
-const MODEL_TAG = "minilm-multilingual-v1";
 const SEM_FLOOR = 0.3;
 const SEM_TOP = 0.75;
 
@@ -33,12 +33,6 @@ export function deriveRequirements(offer: string, max = 8): string[] {
     .map((e) => e[0]);
 }
 
-interface Chunk {
-  text: string;
-  ntext: string;
-  cos: number;
-}
-
 // Puntúa a todos los candidatos contra una oferta. Combina el encaje
 // SEMÁNTICO de la oferta con la cobertura de los REQUISITOS clave, y
 // devuelve para cada uno qué cumple, qué le falta y la evidencia.
@@ -49,44 +43,9 @@ export async function matchOffer(
   const db = await getDb();
   const q = await embed(offer);
 
-  // Fragmentos con su parecido semántico a la oferta, por candidato.
-  const chunkRows = await db.select<
-    { candidate_id: number; text: string; vector: string }[]
-  >(
-    `SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = $1`,
-    [MODEL_TAG],
-  );
-  const byCand = new Map<number, Chunk[]>();
-  const repSum = new Map<number, { sum: Float64Array; n: number }>();
-  for (const r of chunkRows) {
-    const vec = Float32Array.from(JSON.parse(r.vector) as number[]);
-    const cos = cosine(q, vec);
-    const arr = byCand.get(r.candidate_id) ?? [];
-    arr.push({ text: r.text, ntext: norm(r.text), cos });
-    byCand.set(r.candidate_id, arr);
-    let acc = repSum.get(r.candidate_id);
-    if (!acc) {
-      acc = { sum: new Float64Array(vec.length), n: 0 };
-      repSum.set(r.candidate_id, acc);
-    }
-    for (let i = 0; i < vec.length; i++) acc.sum[i] += vec[i];
-    acc.n++;
-  }
-
-  // Representación media por candidato + dirección de preferencia (👍/👎).
-  const repByCand = new Map<number, Float32Array>();
-  for (const [id, acc] of repSum) {
-    const rep = new Float32Array(acc.sum.length);
-    let nrm = 0;
-    for (let i = 0; i < rep.length; i++) {
-      rep[i] = acc.sum[i] / acc.n;
-      nrm += rep[i] * rep[i];
-    }
-    nrm = Math.sqrt(nrm);
-    if (nrm > 1e-8) for (let i = 0; i < rep.length; i++) rep[i] /= nrm;
-    repByCand.set(id, rep);
-  }
-  const pref = await computePreference(repByCand);
+  // Mismo puente que la búsqueda: Rust compara la oferta contra cada fragmento
+  // y calcula la afinidad con tus votos. Aquí solo llegan textos y números.
+  const scoring = await scoreAgainst(q, norm);
 
   const cands = await db.select<
     {
@@ -108,8 +67,8 @@ export async function matchOffer(
     .filter((r) => r.key.length > 0);
 
   const results: MatchResult[] = cands.map((c) => {
-    const chunks = byCand.get(c.id) ?? [];
-    const semBest = chunks.reduce<Chunk | undefined>(
+    const chunks = scoring.byCand.get(c.id) ?? [];
+    const semBest = chunks.reduce<ScoredChunk | undefined>(
       (best, ch) => (!best || ch.cos > best.cos ? ch : best),
       undefined,
     );
@@ -130,8 +89,7 @@ export async function matchOffer(
 
     // Encaje: si hay requisitos, mezcla significado + cobertura; si no, solo
     // significado. (Los umbrales/pesos son ajustables.)
-    const rep = repByCand.get(c.id);
-    const boost = pref && rep ? PREF_WEIGHT * cosine(rep, pref) : 0;
+    const boost = PREF_WEIGHT * scoring.affinity(c.id);
     const base = reqs.length > 0 ? 0.6 * calibSem + 0.4 * coverage : calibSem;
     const fit = Math.min(1, Math.max(0, base + boost));
 

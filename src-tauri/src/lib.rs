@@ -808,6 +808,299 @@ fn delete_orphan_backups(app: tauri::AppHandle) -> Result<usize, String> {
 }
 
 // ============================================================================
+// VECTORES DE BÚSQUEDA — por qué este trozo vive en Rust y no en la interfaz
+//
+// Los vectores son el 90% de lo que la búsqueda mueve: con 2.000 CVs son unos
+// 40.000 fragmentos. Guardados como array JSON ocupan 7.591 bytes cada uno
+// (~304 MB por búsqueda); en binario, 1.536.
+//
+// Y aquí está el motivo de fondo: por el puente del plugin SQL, ese binario NO
+// se puede aprovechar. Al LEER, un BLOB se serializa como array JSON con cada
+// byte suelto (decode/sqlite.rs); al ESCRIBIR, un array de JavaScript se acaba
+// guardando como cadena JSON (wrapper.rs). Medido: pasar a BLOB sin más solo
+// ahorraba un 18%.
+//
+// Así que la columna binaria solo rinde si quien la lee y la escribe es Rust.
+// Por eso los vectores no cruzan nunca a la interfaz: entran ya calculados
+// (store_chunks) y salen convertidos en un número (score_chunks). Toda la
+// lógica de PUNTUACIÓN —la mezcla 60/40, la evidencia, el "por qué encaja"—
+// sigue en TypeScript, que es donde se lee y se prueba bien.
+// Ver Diario, entrada 45.
+// ============================================================================
+
+const DB_URL: &str = "sqlite:zalent.db";
+
+// Reutilizamos el pool del plugin en vez de abrir otro: una segunda conexión
+// impediría reemplazar el fichero al cifrar la BD (Windows).
+async fn vector_pool(app: &tauri::AppHandle) -> Result<sqlx::SqlitePool, String> {
+    tauri_plugin_sql_cipher::sqlite_pool(app, DB_URL)
+        .await
+        .ok_or_else(|| "la base de datos aún no está abierta".to_string())
+}
+
+fn vector_to_bytes(v: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(v.len() * 4);
+    for f in v {
+        out.extend_from_slice(&f.to_le_bytes());
+    }
+    out
+}
+
+fn bytes_to_vector(b: &[u8]) -> Vec<f32> {
+    b.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+// Producto escalar. Los vectores del modelo vienen normalizados, así que esto
+// ES el coseno. Se acumula en f64 para dar exactamente el mismo número que
+// JavaScript, donde todo número es un f64 (ver `cosine()` en embeddings.ts).
+fn dot(a: &[f32], b: &[f32]) -> f64 {
+    let n = a.len().min(b.len());
+    let mut sum = 0.0f64;
+    for i in 0..n {
+        sum += a[i] as f64 * b[i] as f64;
+    }
+    sum
+}
+
+#[derive(Deserialize)]
+struct ChunkInput {
+    idx: i64,
+    text: String,
+    vector: Vec<f32>,
+}
+
+// Guarda los fragmentos de UN candidato, reemplazando los que hubiera.
+// En una transacción: si algo falla a mitad, el candidato se queda con su
+// índice anterior intacto en vez de con medio índice nuevo.
+#[tauri::command]
+async fn store_chunks(
+    app: tauri::AppHandle,
+    candidate_id: i64,
+    model: String,
+    chunks: Vec<ChunkInput>,
+) -> Result<usize, String> {
+    let pool = vector_pool(&app).await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    sqlx::query("DELETE FROM candidate_chunks WHERE candidate_id = ? AND model = ?")
+        .bind(candidate_id)
+        .bind(&model)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    for c in &chunks {
+        sqlx::query(
+            "INSERT INTO candidate_chunks (candidate_id, idx, text, model, vector)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(candidate_id)
+        .bind(c.idx)
+        .bind(&c.text)
+        .bind(&model)
+        .bind(vector_to_bytes(&c.vector))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(chunks.len())
+}
+
+#[derive(Serialize)]
+pub struct ScoredChunk {
+    candidate_id: i64,
+    text: String,
+    cos: f64,
+}
+
+#[derive(Serialize)]
+pub struct ScoreResult {
+    chunks: Vec<ScoredChunk>,
+    // Parecido de cada candidato a la dirección que te gusta (Rocchio), sin
+    // ponderar: el peso (PREF_WEIGHT) lo pone la interfaz, porque es una
+    // constante de ajuste de la puntuación, no del cálculo. Clave = id como
+    // texto, porque las claves de un objeto JSON siempre son cadenas.
+    boosts: std::collections::HashMap<String, f64>,
+}
+
+// Compara la consulta contra TODOS los fragmentos y devuelve, por fragmento,
+// su texto y su coseno. Los vectores se quedan aquí.
+#[tauri::command]
+async fn score_chunks(
+    app: tauri::AppHandle,
+    model: String,
+    query: Vec<f32>,
+) -> Result<ScoreResult, String> {
+    use sqlx::Row;
+    let pool = vector_pool(&app).await?;
+
+    let rows = sqlx::query(
+        "SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = ?",
+    )
+    .bind(&model)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut chunks = Vec::with_capacity(rows.len());
+    // Suma de los vectores de cada candidato, para su representación media.
+    let mut sums: std::collections::HashMap<i64, (Vec<f64>, usize)> =
+        std::collections::HashMap::new();
+
+    for row in &rows {
+        let candidate_id: i64 = row.try_get("candidate_id").map_err(|e| e.to_string())?;
+        let text: String = row.try_get("text").map_err(|e| e.to_string())?;
+        let raw: Vec<u8> = row.try_get("vector").map_err(|e| e.to_string())?;
+        let vec = bytes_to_vector(&raw);
+
+        chunks.push(ScoredChunk {
+            candidate_id,
+            text,
+            cos: dot(&query, &vec),
+        });
+
+        let acc = sums
+            .entry(candidate_id)
+            .or_insert_with(|| (vec![0.0; vec.len()], 0));
+        for (i, x) in vec.iter().enumerate() {
+            if i < acc.0.len() {
+                acc.0[i] += *x as f64;
+            }
+        }
+        acc.1 += 1;
+    }
+
+    // Representación de cada candidato = media de sus fragmentos, normalizada.
+    let reps: std::collections::HashMap<i64, Vec<f64>> = sums
+        .into_iter()
+        .map(|(id, (sum, n))| {
+            let mut rep: Vec<f64> = sum.iter().map(|s| s / n as f64).collect();
+            let norm: f64 = rep.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if norm > 1e-8 {
+                for x in rep.iter_mut() {
+                    *x /= norm;
+                }
+            }
+            (id, rep)
+        })
+        .collect();
+
+    Ok(ScoreResult {
+        boosts: preference_boosts(&pool, &reps).await?,
+        chunks,
+    })
+}
+
+// Vector de PREFERENCIA (Rocchio): la dirección media de los perfiles que
+// votaste 👍 menos la de los que votaste 👎. Devuelve, por candidato, cuánto se
+// parece a esa dirección. Sin votos no hay señal y no hay empujón.
+async fn preference_boosts(
+    pool: &sqlx::SqlitePool,
+    reps: &std::collections::HashMap<i64, Vec<f64>>,
+) -> Result<std::collections::HashMap<String, f64>, String> {
+    use sqlx::Row;
+    let empty = std::collections::HashMap::new();
+
+    let votes = sqlx::query("SELECT candidate_id, vote FROM feedback")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    if votes.is_empty() {
+        return Ok(empty);
+    }
+    let dim = match reps.values().next() {
+        Some(v) => v.len(),
+        None => return Ok(empty),
+    };
+
+    let (mut liked, mut disliked) = (vec![0.0f64; dim], vec![0.0f64; dim]);
+    let (mut n_liked, mut n_disliked) = (0usize, 0usize);
+    for row in &votes {
+        let id: i64 = row.try_get("candidate_id").map_err(|e| e.to_string())?;
+        let vote: i64 = row.try_get("vote").map_err(|e| e.to_string())?;
+        let Some(rep) = reps.get(&id) else { continue };
+        let target = if vote > 0 { &mut liked } else { &mut disliked };
+        for i in 0..dim.min(rep.len()) {
+            target[i] += rep[i];
+        }
+        if vote > 0 {
+            n_liked += 1
+        } else {
+            n_disliked += 1
+        }
+    }
+    if n_liked == 0 && n_disliked == 0 {
+        return Ok(empty);
+    }
+
+    let mut pref = vec![0.0f64; dim];
+    for i in 0..dim {
+        let a = if n_liked > 0 { liked[i] / n_liked as f64 } else { 0.0 };
+        let b = if n_disliked > 0 { disliked[i] / n_disliked as f64 } else { 0.0 };
+        pref[i] = a - b;
+    }
+    let norm: f64 = pref.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if norm < 1e-8 {
+        return Ok(empty);
+    }
+    for x in pref.iter_mut() {
+        *x /= norm;
+    }
+
+    Ok(reps
+        .iter()
+        .map(|(id, rep)| {
+            let cos: f64 = rep.iter().zip(&pref).map(|(a, b)| a * b).sum();
+            (id.to_string(), cos)
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::{bytes_to_vector, dot, vector_to_bytes};
+
+    #[test]
+    fn ida_y_vuelta_sin_perdida() {
+        // Los valores del modelo son floats normales; f32 los guarda exactos
+        // al ir y volver porque no cambiamos de precisión por el camino.
+        let v = vec![0.0, 1.0, -0.5, 0.333_333_34, f32::MIN_POSITIVE];
+        assert_eq!(bytes_to_vector(&vector_to_bytes(&v)), v);
+    }
+
+    #[test]
+    fn un_vector_de_384_ocupa_1536_bytes() {
+        // La razón de todo este cambio: 1.536 bytes frente a los 7.591 que
+        // ocupaba el mismo vector escrito como array JSON.
+        assert_eq!(vector_to_bytes(&vec![0.5; 384]).len(), 1536);
+    }
+
+    #[test]
+    fn bytes_sobrantes_no_revientan() {
+        // Si un BLOB llegara truncado (fichero corrupto), preferimos perder el
+        // último número a que la búsqueda entera falle.
+        assert_eq!(bytes_to_vector(&[0, 0, 128, 63, 9, 9]), vec![1.0]);
+    }
+
+    #[test]
+    fn el_producto_escalar_es_el_coseno_con_vectores_normalizados() {
+        assert_eq!(dot(&[1.0, 0.0], &[1.0, 0.0]), 1.0); // idénticos
+        assert_eq!(dot(&[1.0, 0.0], &[0.0, 1.0]), 0.0); // perpendiculares
+        assert_eq!(dot(&[1.0, 0.0], &[-1.0, 0.0]), -1.0); // opuestos
+    }
+
+    #[test]
+    fn longitudes_distintas_no_desbordan() {
+        // Defensa por si conviviesen vectores de dos modelos distintos.
+        assert_eq!(dot(&[1.0, 1.0, 1.0], &[1.0, 1.0]), 2.0);
+    }
+}
+
+// ============================================================================
 // SPIKE (temporal): hablar con Ollama, que corre NATIVO fuera de Zalent.
 //
 // Por qué desde Rust y no con fetch() desde la interfaz:
@@ -1175,6 +1468,32 @@ pub fn run() {
             );
         ",
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 10,
+        description: "chunk_vectors_as_blob",
+        // Los vectores pasan de TEXTO (un array JSON de 384 números, 7.591
+        // bytes) a BLOB binario (1.536 bytes). No se convierten los datos
+        // viejos: `candidate_chunks` es un CACHÉ derivado del CV, y la app ya
+        // sabe reconstruirlo sola (indexAllCandidates() reindexa a quien no
+        // tiene fragmentos). Convertir habría significado código de migración
+        // vivo para siempre a cambio de ahorrar un reindexado que el usuario
+        // ya ve con su barra de progreso. Ver Diario, entrada 45.
+        sql: "
+            DROP TABLE candidate_chunks;
+            CREATE TABLE candidate_chunks (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id INTEGER NOT NULL,
+                idx          INTEGER NOT NULL,
+                text         TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                vector       BLOB NOT NULL,
+                FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_chunks_candidate ON candidate_chunks(candidate_id);
+            CREATE INDEX idx_chunks_model     ON candidate_chunks(model);
+        ",
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
@@ -1263,6 +1582,8 @@ pub fn run() {
             db_encryption_status,
             delete_plaintext_backups,
             delete_orphan_backups,
+            store_chunks,
+            score_chunks,
             ollama_status,
             ollama_extract,
             ollama_pull

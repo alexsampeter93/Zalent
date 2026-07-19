@@ -1,12 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { deriveRequirements, matchOffer } from "./match";
 
-// Mismo enfoque que en search.test.ts: getDb() y embed() no existen en Node,
-// se simulan. Ver el comentario grande en search.test.ts para el porqué.
-interface ChunkRow {
+// Mismo enfoque que en search.test.ts: getDb(), embed() e invoke() no existen
+// en Node y se simulan. El coseno llega ya calculado desde Rust, así que el
+// test lo fija directamente en vez de fabricar vectores que lo produzcan.
+// Ver el comentario grande en search.test.ts para el porqué.
+interface ScoredRow {
   candidate_id: number;
   text: string;
-  vector: string; // JSON con el array de números
+  cos: number;
 }
 // matchOffer() no lee `email` (a diferencia de search()), así que la fila que
 // simulamos es exactamente la que pide su SELECT, ni un campo más.
@@ -18,26 +20,28 @@ interface CandRow {
   source_file: string | null;
   raw_text: string | null;
 }
-interface VoteRow {
-  candidate_id: number;
-  vote: number;
-}
-
 const dbState = {
-  chunkRows: [] as ChunkRow[],
+  scored: [] as ScoredRow[],
   candRows: [] as CandRow[],
-  votes: [] as VoteRow[],
+  boosts: {} as Record<string, number>,
 };
 
 vi.mock("../db", () => ({
   getDb: async () => ({
     select: vi.fn(async (sql: string) => {
-      if (sql.includes("candidate_chunks")) return dbState.chunkRows;
-      if (sql.includes("FROM feedback")) return dbState.votes;
       if (sql.includes("FROM candidates")) return dbState.candRows;
       return [];
     }),
     execute: vi.fn(async () => {}),
+  }),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "score_chunks") {
+      return { chunks: dbState.scored, boosts: dbState.boosts };
+    }
+    return null;
   }),
 }));
 
@@ -48,15 +52,11 @@ vi.mock("./embeddings", async (importOriginal) => {
 
 import { embed } from "./embeddings";
 
-function vec(...nums: number[]): Float32Array {
-  return Float32Array.from(nums);
-}
-
 beforeEach(() => {
-  dbState.chunkRows = [];
+  dbState.scored = [];
   dbState.candRows = [];
-  dbState.votes = [];
-  vi.mocked(embed).mockReset();
+  dbState.boosts = {};
+  vi.mocked(embed).mockResolvedValue(Float32Array.from([1, 0]));
 });
 
 describe("deriveRequirements", () => {
@@ -81,9 +81,8 @@ describe("deriveRequirements", () => {
 
 describe("matchOffer", () => {
   it("separa requisitos cumplidos (matched) de los que faltan (missing)", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "domina python y docker en producción", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      { candidate_id: 1, text: "domina python y docker en producción", cos: 1 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", headline: null, education: null, source_file: null, raw_text: "domina python y docker en producción" },
@@ -95,9 +94,9 @@ describe("matchOffer", () => {
   });
 
   it("mezcla significado (60%) y cobertura de requisitos (40%) cuando hay requisitos", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0)); // cos=1 con el chunk -> calibSem=1 (máximo, tras el suelo)
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "python y sql", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      // cos=1 -> calibSem=1 (el máximo, una vez descontado el suelo de ruido)
+      { candidate_id: 1, text: "python y sql", cos: 1 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", headline: null, education: null, source_file: null, raw_text: "python y sql" },
@@ -109,10 +108,7 @@ describe("matchOffer", () => {
   });
 
   it("sin requisitos, el encaje es solo la parte semántica", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(0.5, 0)); // cos = 0.5 con el chunk [1,0]
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "cualquier cosa", vector: JSON.stringify([1, 0]) },
-    ];
+    dbState.scored = [{ candidate_id: 1, text: "cualquier cosa", cos: 0.5 }];
     dbState.candRows = [
       { id: 1, full_name: "Ana", headline: null, education: null, source_file: null, raw_text: "cualquier cosa" },
     ];
@@ -123,12 +119,11 @@ describe("matchOffer", () => {
   });
 
   it("prefiere como evidencia un fragmento que contenga un requisito cumplido", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      // más parecido semánticamente (cos=1) pero no menciona el requisito
-      { candidate_id: 1, text: "gran trayectoria profesional", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      // más parecido semánticamente pero no menciona el requisito
+      { candidate_id: 1, text: "gran trayectoria profesional", cos: 1 },
       // menciona el requisito "docker", aunque su coseno sea menor
-      { candidate_id: 1, text: "experto en docker", vector: JSON.stringify([0.5, 0]) },
+      { candidate_id: 1, text: "experto en docker", cos: 0.5 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", headline: null, education: null, source_file: null, raw_text: "gran trayectoria profesional experto en docker" },
@@ -139,10 +134,9 @@ describe("matchOffer", () => {
   });
 
   it("ordena de mayor a menor encaje", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "sin requisitos", vector: JSON.stringify([0.2, 0]) },
-      { candidate_id: 2, text: "python docker kubernetes", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      { candidate_id: 1, text: "sin requisitos", cos: 0.2 },
+      { candidate_id: 2, text: "python docker kubernetes", cos: 1 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Bajo encaje", headline: null, education: null, source_file: null, raw_text: "sin requisitos" },

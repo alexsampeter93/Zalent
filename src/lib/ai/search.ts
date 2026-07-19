@@ -1,8 +1,12 @@
 import { getDb } from "../db";
-import { embed, cosine } from "./embeddings";
-import { computePreference, PREF_WEIGHT } from "./preference";
-
-const MODEL_TAG = "minilm-multilingual-v1";
+import { embed } from "./embeddings";
+import { PREF_WEIGHT } from "./preference";
+import {
+  MODEL_TAG,
+  scoreAgainst,
+  storeChunks,
+  type ScoredChunk,
+} from "./vectors";
 
 // Trocea un texto en fragmentos de ~60 palabras con solape, para que cada
 // trozo entre en el modelo (~128 palabras) y sirva como "evidencia" legible.
@@ -55,18 +59,13 @@ export async function indexAllCandidates(
       .join(" \n ");
     const chunks = chunkText(doc);
 
-    await db.execute(
-      "DELETE FROM candidate_chunks WHERE candidate_id = $1 AND model = $2",
-      [c.id, MODEL_TAG],
-    );
-    for (let i = 0; i < chunks.length; i++) {
-      const vec = await embed(chunks[i]);
-      await db.execute(
-        `INSERT INTO candidate_chunks (candidate_id, idx, text, model, vector)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [c.id, i, chunks[i], MODEL_TAG, JSON.stringify(Array.from(vec))],
-      );
-    }
+    // Los embeddings se calculan aquí (el modelo corre en el webview) y se
+    // guardan de una sola vez: Rust los escribe en binario y en una
+    // transacción, así que un fallo a mitad no deja medio índice.
+    const vectors: Float32Array[] = [];
+    for (const ch of chunks) vectors.push(await embed(ch));
+    await storeChunks(c.id, chunks, vectors);
+
     done++;
     onProgress?.(done, pending.length);
   }
@@ -137,51 +136,10 @@ export async function search(query: string, limit = 20): Promise<SearchHit[]> {
   const db = await getDb();
   const q = await embed(query);
 
-  // Todos los fragmentos con su parecido semántico, agrupados por candidato.
-  const chunkRows = await db.select<
-    { candidate_id: number; text: string; vector: string }[]
-  >(
-    `SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = $1`,
-    [MODEL_TAG],
-  );
-  interface Chunk {
-    text: string;
-    ntext: string;
-    cos: number;
-  }
-  const byCand = new Map<number, Chunk[]>();
-  const repSum = new Map<number, { sum: Float64Array; n: number }>();
-  for (const r of chunkRows) {
-    const vec = Float32Array.from(JSON.parse(r.vector) as number[]);
-    const cos = cosine(q, vec);
-    const arr = byCand.get(r.candidate_id) ?? [];
-    arr.push({ text: r.text, ntext: norm(r.text), cos });
-    byCand.set(r.candidate_id, arr);
-    // Acumulamos para la representación media del candidato (preferencias).
-    let acc = repSum.get(r.candidate_id);
-    if (!acc) {
-      acc = { sum: new Float64Array(vec.length), n: 0 };
-      repSum.set(r.candidate_id, acc);
-    }
-    for (let i = 0; i < vec.length; i++) acc.sum[i] += vec[i];
-    acc.n++;
-  }
-
-  // Representación de cada candidato = media normalizada de sus fragmentos.
-  const repByCand = new Map<number, Float32Array>();
-  for (const [id, acc] of repSum) {
-    const rep = new Float32Array(acc.sum.length);
-    let nrm = 0;
-    for (let i = 0; i < rep.length; i++) {
-      rep[i] = acc.sum[i] / acc.n;
-      nrm += rep[i] * rep[i];
-    }
-    nrm = Math.sqrt(nrm);
-    if (nrm > 1e-8) for (let i = 0; i < rep.length; i++) rep[i] /= nrm;
-    repByCand.set(id, rep);
-  }
-  // Dirección de preferencia (Rocchio) a partir de tus votos 👍/👎.
-  const pref = await computePreference(repByCand);
+  // Todo el trabajo con vectores ocurre en Rust: comparar la consulta contra
+  // cada fragmento y calcular la afinidad con tus votos 👍/👎. Lo que vuelve
+  // son textos y números, no vectores.
+  const scoring = await scoreAgainst(q, norm);
 
   // Datos de cada candidato (para la parte léxica y para mostrar).
   const cands = await db.select<
@@ -201,8 +159,8 @@ export async function search(query: string, limit = 20): Promise<SearchHit[]> {
   const terms = queryTerms(query);
 
   const hits: SearchHit[] = cands.map((c) => {
-    const chunks = byCand.get(c.id) ?? [];
-    const semBest = chunks.reduce<Chunk | undefined>(
+    const chunks = scoring.byCand.get(c.id) ?? [];
+    const semBest = chunks.reduce<ScoredChunk | undefined>(
       (best, ch) => (!best || ch.cos > best.cos ? ch : best),
       undefined,
     );
@@ -220,8 +178,7 @@ export async function search(query: string, limit = 20): Promise<SearchHit[]> {
 
     // Mezcla GRADUADA (no binaria): 60% significado + 40% coincidencia exacta.
     // Más un empujón suave según tus preferencias aprendidas (👍/👎).
-    const rep = repByCand.get(c.id);
-    const boost = pref && rep ? PREF_WEIGHT * cosine(rep, pref) : 0;
+    const boost = PREF_WEIGHT * scoring.affinity(c.id);
     const display = Math.min(1, Math.max(0, 0.6 * calibSem + 0.4 * lexCoverage + boost));
 
     // Evidencia con sentido: si hay coincidencia literal, el fragmento que la

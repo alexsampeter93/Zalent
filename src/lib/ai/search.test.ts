@@ -1,23 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { norm, chunkText, queryTerms, STOPWORDS, search } from "./search";
 
-// search() y matchOffer() hablan con SQLite (getDb) y con el modelo de
-// embeddings (embed) — ninguno de los dos existe en un test de Node. Los
-// simulamos: la base de datos como una tabla en memoria controlada por SQL,
-// y embed() devolviendo vectores que nosotros elegimos (así el "significado"
-// del test es determinista, no depende del modelo real).
+// search() habla con tres cosas que no existen en un test de Node: SQLite
+// (getDb), el modelo de embeddings (embed) y la parte nativa (invoke). Las
+// tres se simulan.
 //
-// Truco clave: cosine() en embeddings.ts es un simple producto escalar (no
-// normaliza), así que podemos fabricar vectores donde el "coseno" resultante
-// sea exactamente el número que queremos probar (p.ej. 0.525), sin tener que
-// simular vectores unitarios de verdad.
-// Las filas que devolvería SQLite, tipadas igual que las consulta el código
-// bajo test (nada de `any`: si mañana cambia una consulta, el test se entera).
-interface ChunkRow {
+// Antes, para probar que un candidato puntuaba 0.525 había que FABRICAR dos
+// vectores cuyo producto escalar diera ese número. Ahora el coseno se calcula
+// en Rust y llega ya hecho, así que el test lo pone directamente: `cos: 0.525`.
+// Se prueba lo que de verdad decide el resultado —la mezcla 60/40, la
+// evidencia, el orden— sin aritmética de por medio. Ver Diario, entrada 45.
+//
+// Se simula `invoke` (el puente con Rust) y no `./vectors`, para que el
+// contrato entre TypeScript y Rust —los nombres de los campos que cruzan—
+// también quede cubierto.
+
+// Un fragmento tal y como lo devuelve el comando `score_chunks` de Rust.
+interface ScoredRow {
   candidate_id: number;
   text: string;
-  vector: string; // JSON con el array de números
+  cos: number;
 }
+// Las filas que devolvería SQLite, tipadas igual que las consulta el código
+// bajo test (nada de `any`: si mañana cambia una consulta, el test se entera).
 interface CandRow {
   id: number;
   full_name: string | null;
@@ -27,26 +32,31 @@ interface CandRow {
   source_file: string | null;
   raw_text: string | null;
 }
-interface VoteRow {
-  candidate_id: number;
-  vote: number;
-}
-
 const dbState = {
-  chunkRows: [] as ChunkRow[],
+  scored: [] as ScoredRow[],
   candRows: [] as CandRow[],
-  votes: [] as VoteRow[],
+  // Afinidad con tus votos 👍/👎 por candidato (la calcula Rust). Vacío = aún
+  // no has votado nada, que es el caso normal en estos tests.
+  boosts: {} as Record<string, number>,
 };
 
 vi.mock("../db", () => ({
   getDb: async () => ({
     select: vi.fn(async (sql: string) => {
-      if (sql.includes("candidate_chunks")) return dbState.chunkRows;
-      if (sql.includes("FROM feedback")) return dbState.votes;
       if (sql.includes("FROM candidates")) return dbState.candRows;
       return [];
     }),
     execute: vi.fn(async () => {}),
+  }),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === "score_chunks") {
+      return { chunks: dbState.scored, boosts: dbState.boosts };
+    }
+    if (cmd === "store_chunks") return 0;
+    return null;
   }),
 }));
 
@@ -57,15 +67,13 @@ vi.mock("./embeddings", async (importOriginal) => {
 
 import { embed } from "./embeddings";
 
-function vec(...nums: number[]): Float32Array {
-  return Float32Array.from(nums);
-}
-
 beforeEach(() => {
-  dbState.chunkRows = [];
+  dbState.scored = [];
   dbState.candRows = [];
-  dbState.votes = [];
-  vi.mocked(embed).mockReset();
+  dbState.boosts = {};
+  // El vector de la consulta ya no influye en el resultado (el coseno lo
+  // calcula Rust y el test lo fija), pero search() sí espera un vector.
+  vi.mocked(embed).mockResolvedValue(Float32Array.from([1, 0]));
 });
 
 describe("norm", () => {
@@ -118,10 +126,9 @@ describe("queryTerms", () => {
 
 describe("search", () => {
   it("puntúa más alto al candidato semánticamente más parecido", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "desarrollador backend con Python", vector: JSON.stringify([1, 0]) }, // cos=1 (máximo)
-      { candidate_id: 2, text: "cocinero de restaurante", vector: JSON.stringify([0, 1]) }, // cos=0 (mínimo)
+    dbState.scored = [
+      { candidate_id: 1, text: "desarrollador backend con Python", cos: 1 }, // máximo
+      { candidate_id: 2, text: "cocinero de restaurante", cos: 0 }, // mínimo
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", email: "a@x.com", headline: "Backend", education: null, source_file: "a.pdf", raw_text: "desarrollador backend con Python" },
@@ -134,9 +141,9 @@ describe("search", () => {
   });
 
   it("calibra la semántica: por debajo de SEM_FLOOR el encaje semántico es 0", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(0.2, 0)); // cos = 0.2, por debajo del suelo 0.3
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "atencion al cliente en tienda de ropa", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      // 0.2 queda por debajo del suelo de ruido (SEM_FLOOR = 0.3)
+      { candidate_id: 1, text: "atencion al cliente en tienda de ropa", cos: 0.2 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", email: null, headline: null, education: null, source_file: null, raw_text: "atencion al cliente en tienda de ropa" },
@@ -150,9 +157,8 @@ describe("search", () => {
   });
 
   it("una coincidencia literal sube el encaje aunque el significado sea flojo", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(0, 0)); // cos = 0 con cualquier vector
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "trabaja en Leroy Merlin desde 2020", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      { candidate_id: 1, text: "trabaja en Leroy Merlin desde 2020", cos: 0 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", email: null, headline: null, education: null, source_file: null, raw_text: "trabaja en Leroy Merlin desde 2020" },
@@ -164,12 +170,11 @@ describe("search", () => {
   });
 
   it("prefiere como evidencia el fragmento que contiene el término encontrado", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      // este es el MÁS parecido semánticamente (cos=1) pero no menciona "python"...
-      { candidate_id: 1, text: "gran experiencia profesional en general", vector: JSON.stringify([1, 0]) },
+    dbState.scored = [
+      // este es el MÁS parecido semánticamente pero no menciona "python"...
+      { candidate_id: 1, text: "gran experiencia profesional en general", cos: 1 },
       // ...este menciona "python" literalmente aunque su coseno sea menor
-      { candidate_id: 1, text: "domina python y sql", vector: JSON.stringify([0.5, 0]) },
+      { candidate_id: 1, text: "domina python y sql", cos: 0.5 },
     ];
     dbState.candRows = [
       { id: 1, full_name: "Ana", email: null, headline: null, education: null, source_file: null, raw_text: "gran experiencia profesional en general domina python y sql" },
@@ -180,8 +185,7 @@ describe("search", () => {
   });
 
   it("un candidato sin fragmentos indexados no rompe y puntúa 0", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = []; // nada indexado todavía
+    dbState.scored = []; // nada indexado todavía
     dbState.candRows = [
       { id: 1, full_name: "Ana", email: null, headline: null, education: null, source_file: null, raw_text: null },
     ];
@@ -192,11 +196,10 @@ describe("search", () => {
   });
 
   it("ordena de mayor a menor encaje y respeta el límite", async () => {
-    vi.mocked(embed).mockResolvedValue(vec(1, 0));
-    dbState.chunkRows = [
-      { candidate_id: 1, text: "a", vector: JSON.stringify([0.4, 0]) },
-      { candidate_id: 2, text: "b", vector: JSON.stringify([1, 0]) },
-      { candidate_id: 3, text: "c", vector: JSON.stringify([0.7, 0]) },
+    dbState.scored = [
+      { candidate_id: 1, text: "a", cos: 0.4 },
+      { candidate_id: 2, text: "b", cos: 1 },
+      { candidate_id: 3, text: "c", cos: 0.7 },
     ];
     dbState.candRows = [1, 2, 3].map((id) => ({
       id, full_name: `C${id}`, email: null, headline: null, education: null, source_file: null, raw_text: null,

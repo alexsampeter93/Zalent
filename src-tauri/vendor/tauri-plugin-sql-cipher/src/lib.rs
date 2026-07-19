@@ -99,6 +99,27 @@ pub async fn reload_pools<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), E
     Ok(())
 }
 
+/// El pool de SQLite que el plugin YA tiene abierto para `db_url`.
+///
+/// Existe para que la app pueda hacer consultas nativas (p.ej. calcular
+/// vectores en Rust) sin abrir una SEGUNDA conexión al fichero. Eso importa en
+/// Windows: una conexión extra impediría reemplazar la BD durante la migración
+/// de cifrado, que es justo el problema que resolvió [`close_all_pools`].
+///
+/// El clon es barato —sqlx comparte el pool por dentro— y no burla el cierre:
+/// `close()` actúa sobre ese estado compartido, así que un clon vivo tampoco
+/// mantiene el fichero abierto.
+pub async fn sqlite_pool<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    db_url: &str,
+) -> Option<sqlx::SqlitePool> {
+    let instances = app.try_state::<DbInstances>()?;
+    let instances = instances.0.read().await;
+    match instances.get(db_url)? {
+        DbPool::Sqlite(pool) => Some(pool.clone()),
+    }
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum LastInsertId {
