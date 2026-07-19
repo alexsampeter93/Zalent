@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { unlock } from "../lib/lock";
+import { describeError } from "../lib/errors";
 
 // Pantalla de desbloqueo: pide la contraseña maestra al abrir la app.
 export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
@@ -17,7 +18,11 @@ export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
       else setError("Contraseña incorrecta.");
     } catch (err) {
       console.error(err);
-      setError("Error al verificar.");
+      // Aquí NO se usa el aviso flotante: la pantalla de bloqueo se pinta
+      // antes que el resto de la app, así que el error tiene que verse en la
+      // propia pantalla. Y distinguir "contraseña incorrecta" de "la base no
+      // se puede abrir" importa mucho cuando no puedes entrar.
+      setError("Error al verificar: " + describeError(err));
     } finally {
       setChecking(false);
     }

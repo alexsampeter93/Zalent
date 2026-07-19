@@ -20,6 +20,7 @@ import {
   type Note,
 } from "../../lib/notes";
 import { indexAllCandidates, search, type SearchHit } from "../../lib/ai/search";
+import { reportError } from "../../lib/errors";
 import {
   listVacancies,
   listAllMemberships,
@@ -168,7 +169,7 @@ export function useCandidates({
       // `importReminder && unclassifiedCount > 0`, y esto deja el contador en 0.
       setClassifyMsg(`Clasificados ${tagged} de ${all.length} CVs`);
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo completar la clasificación automática", e);
       setClassifyMsg("Error al clasificar");
     } finally {
       setClassifying(false);
@@ -205,7 +206,7 @@ export function useCandidates({
       }
       setTagByCandidate(tmap);
     } catch (e) {
-      console.error(e);
+      reportError("No se pudieron cargar los filtros (ofertas y etiquetas)", e);
     }
   }
 
@@ -213,7 +214,9 @@ export function useCandidates({
     try {
       setCandidates(await listCandidates());
     } catch (e) {
-      console.error(e);
+      // Sin esto, un fallo al leer dejaba la lista vacía y parecía que no
+      // había candidatos guardados.
+      reportError("No se pudo cargar la lista de candidatos", e);
     }
   }
 
@@ -272,7 +275,7 @@ export function useCandidates({
       setTags(await listCandidateTags(id));
       setCandOffers(await listCandidateVacancies(id));
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo abrir la ficha del candidato", e);
     }
   }
 
@@ -283,13 +286,18 @@ export function useCandidates({
       setTagInput("");
       return;
     }
+    // Actualización OPTIMISTA: la etiqueta aparece antes de estar guardada,
+    // para que la interfaz responda al instante. El precio es que, si la
+    // escritura falla, hay que DESHACERLO — si no, la pantalla enseñaría una
+    // etiqueta que no existe en la base, y el usuario se enteraría al reiniciar.
     setTags((cur) => [...cur, t]);
     setTagInput("");
     try {
       await addTag(selectedId, t);
       await refreshFilters();
     } catch (e) {
-      console.error(e);
+      setTags((cur) => cur.filter((x) => x !== t));
+      reportError(`No se pudo añadir la etiqueta "${t}"`, e);
     }
   }
   async function onRemoveTag(t: string) {
@@ -299,7 +307,10 @@ export function useCandidates({
       await removeTag(selectedId, t);
       await refreshFilters();
     } catch (e) {
-      console.error(e);
+      // Vuelve a su sitio (al final: el orden exacto lo restaura el próximo
+      // `selectCandidate`, que las lee ya ordenadas de la base).
+      setTags((cur) => (cur.includes(t) ? cur : [...cur, t]));
+      reportError(`No se pudo quitar la etiqueta "${t}"`, e);
     }
   }
 
@@ -344,7 +355,9 @@ export function useCandidates({
       setDetail(await getCandidate(selectedId));
       await refreshCandidates();
     } catch (e) {
-      console.error(e);
+      // Importante que se vea: el formulario sigue con los datos escritos y sin
+      // aviso el usuario creería que ya están guardados.
+      reportError("No se pudieron guardar los cambios del candidato", e);
     } finally {
       setSavingEdit(false);
     }
@@ -358,7 +371,7 @@ export function useCandidates({
       backToList();
       await refreshCandidates();
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo borrar el candidato", e);
     } finally {
       setDeleting(false);
     }
@@ -374,7 +387,9 @@ export function useCandidates({
       await refreshCandidates();
       await refreshFilters();
     } catch (e) {
-      console.error(e);
+      // Es una acción RGPD: creer que se anonimizó cuando no ha pasado es
+      // exactamente el fallo que no te puedes permitir aquí.
+      reportError("No se pudo anonimizar el candidato", e);
     } finally {
       setAnonymizing(false);
     }
@@ -383,13 +398,20 @@ export function useCandidates({
   // Cambia la fase del candidato DENTRO de una oferta (desde su ficha).
   async function onOfferStageChange(vacancyId: number, stage: string) {
     if (selectedId == null) return;
+    // La fase anterior, para poder volver si el guardado falla.
+    const previous = candOffers.find((o) => o.id === vacancyId)?.stage;
     setCandOffers((cur) =>
       cur.map((o) => (o.id === vacancyId ? { ...o, stage } : o)),
     );
     try {
       await setCandidateStage(selectedId, vacancyId, stage);
     } catch (e) {
-      console.error(e);
+      if (previous !== undefined) {
+        setCandOffers((cur) =>
+          cur.map((o) => (o.id === vacancyId ? { ...o, stage: previous } : o)),
+        );
+      }
+      reportError("No se pudo cambiar la fase del candidato en la oferta", e);
       setCandOffers(await listCandidateVacancies(selectedId));
     }
   }
@@ -403,7 +425,9 @@ export function useCandidates({
       setNotes(await listNotes(selectedId));
       await refreshFilters(); // actualiza el filtro "con/sin notas"
     } catch (e) {
-      console.error(e);
+      // El texto se queda en el cuadro (no se limpia si falla), así que el
+      // usuario puede reintentar sin volver a escribirlo.
+      reportError("No se pudo guardar la nota", e);
     } finally {
       setSavingNote(false);
     }
@@ -416,7 +440,7 @@ export function useCandidates({
       setNotes(await listNotes(selectedId));
       await refreshFilters();
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo borrar la nota", e);
     }
   }
 
@@ -424,7 +448,8 @@ export function useCandidates({
   async function onVote(vote: Vote) {
     if (selectedId == null) return;
     const id = selectedId;
-    const next: Vote | null = votes.get(id) === vote ? null : vote;
+    const previous = votes.get(id);
+    const next: Vote | null = previous === vote ? null : vote;
     setVotes((m) => {
       const n = new Map(m);
       if (next === null) n.delete(id);
@@ -434,7 +459,13 @@ export function useCandidates({
     try {
       await setVote(id, next);
     } catch (e) {
-      console.error(e);
+      setVotes((m) => {
+        const n = new Map(m);
+        if (previous === undefined) n.delete(id);
+        else n.set(id, previous);
+        return n;
+      });
+      reportError("No se pudo guardar tu voto", e);
       await refreshFilters();
     }
   }
@@ -468,7 +499,11 @@ export function useCandidates({
       await refreshFilters();
       exitSelection();
     } catch (e) {
-      console.error(e);
+      // El bucle se corta al primer fallo: unos se habrán borrado y otros no.
+      // La lista se refresca igualmente (en el `finally` del llamador no, pero
+      // sí al salir), así que el usuario ve el estado real y puede reintentar.
+      await refreshCandidates();
+      reportError("No se pudieron borrar todos los candidatos seleccionados", e);
     } finally {
       setBulkDeleting(false);
     }
@@ -480,7 +515,8 @@ export function useCandidates({
       await refreshFilters();
       exitSelection();
     } catch (e) {
-      console.error(e);
+      await refreshFilters();
+      reportError("No se pudieron añadir todos los candidatos a la oferta", e);
     }
   }
 

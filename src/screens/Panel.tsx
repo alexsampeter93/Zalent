@@ -7,6 +7,7 @@ import {
   stageDistribution,
   STAGES,
 } from "../lib/vacancies";
+import { reportError } from "../lib/errors";
 
 // Color de cada fase (coherente con los badges y el kanban).
 const STAGE_COLOR: Record<string, string> = {
@@ -40,7 +41,9 @@ export function Panel() {
         for (const d of dist) m.set(d.stage, d.count);
         setStageCounts(m);
       } catch (e) {
-        console.error(e);
+        // Un panel de estadísticas que falla enseña ceros, y unos ceros son
+        // indistinguibles de "no tienes datos".
+        reportError("No se pudieron cargar las estadísticas del panel", e);
       } finally {
         setLoading(false);
       }

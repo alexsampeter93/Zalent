@@ -10,6 +10,7 @@ import { useImport } from "./screens/import/useImport";
 import { ImportScreen } from "./screens/import/ImportScreen";
 import { useCandidates } from "./screens/candidates/useCandidates";
 import { CandidatesScreen } from "./screens/candidates/CandidatesScreen";
+import { ErrorToasts } from "./components/ErrorToasts";
 import "./App.css";
 
 // App es el ORQUESTADOR: enruta entre pantallas y sostiene el estado de nivel
@@ -42,6 +43,11 @@ function App() {
 
   return (
     <AppShell active={screen} onNavigate={setScreen}>
+      {/* Los avisos de error viven aquí, fuera de las pantallas: un fallo al
+          cargar candidatos tiene que verse aunque hayas navegado a otro sitio,
+          y así ninguna pantalla necesita saber cómo se muestra un error. */}
+      <ErrorToasts />
+
       {screen === "candidatos" && (
         <CandidatesScreen
           cand={cand}

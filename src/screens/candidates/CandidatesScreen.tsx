@@ -1,5 +1,6 @@
 import { STATUSES } from "../../lib/candidates";
 import { openCvFile } from "../../lib/files";
+import { reportError } from "../../lib/errors";
 import { OlazSprite } from "../../components/OlazSprite";
 import { EmptyState } from "../../components/EmptyState";
 import { CandidateFieldsForm, Info } from "../../components/CandidateFields";
@@ -625,7 +626,7 @@ export function CandidatesScreen({
                           try {
                             await openCvFile(detail.file_path!);
                           } catch (e) {
-                            console.error("open cv:", e);
+                            reportError("No se pudo abrir el CV", e);
                           }
                         }}
                       >

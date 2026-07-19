@@ -8,6 +8,7 @@ import {
   type VacancyWithCount,
   type VacancyCandidate,
 } from "../lib/vacancies";
+import { reportError } from "../lib/errors";
 
 function initials(name: string | null): string {
   if (!name) return "?";
@@ -31,7 +32,7 @@ export function Pipeline() {
         setVacancies(vs);
         setVacancyId((cur) => cur ?? (vs[0]?.id ?? null));
       } catch (e) {
-        console.error(e);
+        reportError("No se pudieron cargar las ofertas del pipeline", e);
       } finally {
         setVacLoaded(true);
       }
@@ -43,7 +44,7 @@ export function Pipeline() {
     try {
       setCands(await listVacancyCandidates(vId));
     } catch (e) {
-      console.error(e);
+      reportError("No se pudieron cargar los candidatos del pipeline", e);
     } finally {
       setCandsLoading(false);
     }
@@ -60,8 +61,10 @@ export function Pipeline() {
     try {
       await setCandidateStage(candidateId, vacancyId, stage);
     } catch (e) {
-      console.error(e);
       loadCands(vacancyId); // si falla, recargamos el estado real
+      // Sin el aviso, la tarjeta volvía sola a su columna y parecía un fallo
+      // del arrastre, no un error de guardado.
+      reportError("No se pudo mover al candidato de fase", e);
     }
   }
 

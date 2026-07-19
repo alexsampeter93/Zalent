@@ -11,6 +11,7 @@ import {
   type PullProgress,
 } from "../../lib/ai/ollama";
 import { type CandidateForm, emptyForm, splitList } from "../../lib/candidate-form";
+import { reportError } from "../../lib/errors";
 
 // TODO EL ESTADO Y LA LÓGICA de la pantalla Importar, en un hook. Vive en App
 // (se llama desde App), así que su estado PERSISTE al navegar a otra pantalla y
@@ -145,6 +146,11 @@ export function useImport({
     setBatchDone(0);
     setBatchErrors([]);
     const errors: { name: string; error: string }[] = [];
+    // Dos fallos que NO abortan la importación de un CV pero que el usuario
+    // tiene que saber. Se cuentan y se avisan UNA vez al final: uno por CV
+    // sería una avalancha de avisos en un lote de 200.
+    let aiFailures = 0;
+    let fileFailures = 0;
     for (const file of files) {
       try {
         const text = await extractText(file);
@@ -176,6 +182,10 @@ export function useImport({
               if (ai.fields.languages.length > 0) languages = ai.fields.languages;
             }
           } catch (err) {
+            // La IA es una MEJORA sobre las reglas, no un requisito: el CV se
+            // importa igual con lo que sacaron las reglas. Pero si el usuario
+            // encendió la IA y no está haciendo nada, tiene que enterarse.
+            aiFailures++;
             console.error("ollamaExtract:", err);
           }
         }
@@ -184,6 +194,10 @@ export function useImport({
         try {
           filePath = await saveCvFile(file);
         } catch (err) {
+          // Grave y silencioso hasta ahora: la ficha se guardaba igual, pero
+          // con `file_path` nulo. Es decir, el candidato aparecía en la lista y
+          // su CV original NO estaba en ninguna parte.
+          fileFailures++;
           console.error("save_cv:", err);
         }
         const gy = Number(g.years_experience);
@@ -200,6 +214,18 @@ export function useImport({
         errors.push({ name: file.name, error: String(err) });
       }
       setBatchDone((d) => d + 1);
+    }
+    if (fileFailures > 0) {
+      reportError(
+        `Se guardaron ${fileFailures} fichas sin su archivo de CV: no se pudo copiar el original al almacén`,
+        "revisa el espacio en disco y los permisos de la carpeta de Zalent",
+      );
+    }
+    if (aiFailures > 0) {
+      reportError(
+        `La IA no pudo analizar ${aiFailures} CV(s); se importaron solo con lo que detectaron las reglas`,
+        "comprueba en Ajustes que el modelo está descargado y disponible",
+      );
     }
     setBatchErrors(errors);
     setBatchRunning(false);
@@ -234,7 +260,12 @@ export function useImport({
         try {
           filePath = await saveCvFile(currentFile);
         } catch (err) {
-          console.error("save_cv:", err);
+          // La ficha se guarda igual (no se pierde lo que ya has revisado),
+          // pero sin el archivo original: hay que decirlo.
+          reportError(
+            "La ficha se guardará, pero no se pudo copiar el CV original al almacén",
+            err,
+          );
         }
       }
       const cleanYears = years !== null && !Number.isNaN(years) ? years : null;

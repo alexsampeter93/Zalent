@@ -13,6 +13,7 @@ import {
   deleteOrphanBackups,
   type DbEncryptionStatus,
 } from "../lib/lock";
+import { describeError, reportError } from "../lib/errors";
 import { useThemeMode, type ThemeMode } from "../lib/theme";
 import { openDataDir, dataDirSize, formatBytes } from "../lib/system";
 import { reindexAll } from "../lib/ai/search";
@@ -180,7 +181,9 @@ function SecuritySection() {
       setPw2("");
       setPwMsg("✅ Contraseña activada. Te la pedirá al abrir la app.");
     } catch (e) {
-      setPwMsg("Error al guardar la contraseña.");
+      // Antes decía solo "Error al guardar la contraseña." y el motivo se
+      // quedaba en la consola, donde el usuario no va a mirar nunca.
+      setPwMsg("Error al guardar la contraseña: " + describeError(e));
       console.error(e);
     } finally {
       setPwBusy(false);
@@ -198,7 +201,7 @@ function SecuritySection() {
         setPwMsg("✅ Contraseña quitada (los archivos se descifraron).");
       } else setPwMsg("Contraseña incorrecta.");
     } catch (e) {
-      setPwMsg("Error.");
+      setPwMsg("No se pudo quitar la contraseña: " + describeError(e));
       console.error(e);
     } finally {
       setPwBusy(false);
@@ -318,7 +321,7 @@ function DatabaseEncryptionCard() {
     try {
       setStatus(await dbEncryptionStatus());
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo consultar el estado del cifrado", e);
     }
   }
 
@@ -581,7 +584,7 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
       onWiped(); // mismo callback de "refresca todo": aquí se reutiliza para "los datos cambiaron"
     } catch (e) {
       console.error(e);
-      setDemoMsg("Error al cargar los datos de ejemplo.");
+      setDemoMsg("Error al cargar los datos de ejemplo: " + describeError(e));
     } finally {
       setLoadingDemo(false);
     }
@@ -596,7 +599,10 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
       setConfirmText("");
       onWiped();
     } catch (e) {
-      console.error(e);
+      // Este era el peor de todos: el borrado total fallaba en silencio y la
+      // pantalla se quedaba igual. El usuario podía irse pensando que sus datos
+      // ya no estaban, cuando seguían ahí enteros.
+      reportError("No se pudieron borrar todos los datos", e);
     } finally {
       setWiping(false);
     }
@@ -820,7 +826,7 @@ function SearchAiSection() {
       setConfirmForget(false);
       setMsg("✅ Preferencias borradas. El ranking vuelve a neutro.");
     } catch (e) {
-      setMsg("Error.");
+      setMsg("No se pudieron borrar las preferencias: " + describeError(e));
       console.error(e);
     } finally {
       setBusy(false);

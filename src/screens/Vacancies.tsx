@@ -14,6 +14,7 @@ import {
 } from "../lib/vacancies";
 import { matchOffer, deriveRequirements, type MatchResult } from "../lib/ai/match";
 import { EmptyState } from "../components/EmptyState";
+import { reportError } from "../lib/errors";
 
 function initials(name: string | null): string {
   if (!name) return "?";
@@ -36,7 +37,7 @@ export function Vacancies() {
     try {
       setList(await listVacancies());
     } catch (e) {
-      console.error(e);
+      reportError("No se pudieron cargar las ofertas", e);
     } finally {
       setLoaded(true);
     }
@@ -160,7 +161,7 @@ function VacancyCreate({
       const id = await createVacancy(title, description);
       onCreated(id);
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo crear la oferta", e);
       setSaving(false);
     }
   }
@@ -224,7 +225,7 @@ function VacancyDetail({
     try {
       setAssigned(await listVacancyCandidates(id));
     } catch (e) {
-      console.error(e);
+      reportError("No se pudieron cargar los candidatos de la oferta", e);
     }
   }
 
@@ -246,7 +247,7 @@ function VacancyDetail({
       const reqs = deriveRequirements(description);
       setResults(await matchOffer(description, reqs));
     } catch (e) {
-      console.error(e);
+      reportError("No se pudo puntuar a los candidatos contra la oferta", e);
     } finally {
       setScoring(false);
     }
@@ -274,7 +275,7 @@ function VacancyDetail({
       await updateVacancy(id, { title, description });
       onChanged();
     } catch (e) {
-      console.error(e);
+      reportError("No se pudieron guardar los cambios de la oferta", e);
     } finally {
       setSaving(false);
     }
