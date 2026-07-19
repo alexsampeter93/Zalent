@@ -491,13 +491,23 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
   const [loadingDemo, setLoadingDemo] = useState(false);
   const [demoMsg, setDemoMsg] = useState("");
   const [cands, setCands] = useState<CandidateRow[] | null>(null);
+  // Momento en que se cargaron los candidatos. Se guarda aquí en vez de leer
+  // Date.now() al calcular `oldCount` más abajo: leer la hora durante el
+  // render hace que el resultado dependa del instante exacto en que React
+  // pinte, y React no garantiza cuántas veces ni cuándo lo hace.
+  const [loadedAt, setLoadedAt] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [retention, setRetention] = useState<number>(() =>
     Number(localStorage.getItem(RETENTION_KEY) || "0"),
   );
 
   useEffect(() => {
-    listCandidates().then(setCands).catch(() => {});
+    listCandidates()
+      .then((rows) => {
+        setCands(rows);
+        setLoadedAt(Date.now());
+      })
+      .catch(() => {});
     dataDirSize().then(setSize).catch(() => {});
   }, [done]);
 
@@ -507,7 +517,7 @@ function DataSection({ onWiped }: { onWiped: () => void }) {
       ? cands.filter(
           (c) =>
             c.created_at &&
-            parseCreated(c.created_at) < Date.now() - retention * 30 * 864e5,
+            parseCreated(c.created_at) < loadedAt - retention * 30 * 864e5,
         ).length
       : 0;
 

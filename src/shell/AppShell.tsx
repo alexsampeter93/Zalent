@@ -153,7 +153,6 @@ export function AppShell({
 }) {
   const [mode, setThemeMode] = useThemeMode();
   const dark = resolvedTheme(mode) === "dark";
-  let lastGroup = "";
   return (
     <div className="app">
       <aside className="rail">
@@ -166,14 +165,18 @@ export function AppShell({
         <div className="rail__tag">Talento local-first</div>
 
         <nav>
-          {NAV.map((item) => {
+          {NAV.map((item, i) => {
+            // La cabecera ("TRABAJO", "ANALIZAR") va solo en el primer elemento
+            // de cada grupo. Se mira el elemento ANTERIOR del array en vez de
+            // arrastrar una variable que se va reasignando: mutar algo durante
+            // el render no es seguro con el renderizado concurrente de React
+            // (dos pasadas podrían leer valores distintos).
             const header =
-              item.group !== lastGroup ? (
+              i === 0 || NAV[i - 1].group !== item.group ? (
                 <div key={item.group} className="rail__section">
                   {item.group}
                 </div>
               ) : null;
-            lastGroup = item.group;
             return (
               <div key={item.key}>
                 {header}

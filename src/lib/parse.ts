@@ -64,7 +64,7 @@ const PLACES = [
 // primera provincia/ciudad conocida que aparezca.
 function detectLocation(original: string, t: string): string {
   const m = original.match(
-    /(?:ubicaci[oó]n|localidad|residencia|direcci[oó]n|ciudad|municipio)\s*[:\-]\s*([^\n,;|]{2,40})/i,
+    /(?:ubicaci[oó]n|localidad|residencia|direcci[oó]n|ciudad|municipio)\s*[:-]\s*([^\n,;|]{2,40})/i,
   );
   if (m) return m[1].trim();
   for (const p of PLACES) {

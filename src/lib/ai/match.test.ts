@@ -3,7 +3,31 @@ import { deriveRequirements, matchOffer } from "./match";
 
 // Mismo enfoque que en search.test.ts: getDb() y embed() no existen en Node,
 // se simulan. Ver el comentario grande en search.test.ts para el porqué.
-const dbState = { chunkRows: [] as any[], candRows: [] as any[], votes: [] as any[] };
+interface ChunkRow {
+  candidate_id: number;
+  text: string;
+  vector: string; // JSON con el array de números
+}
+// matchOffer() no lee `email` (a diferencia de search()), así que la fila que
+// simulamos es exactamente la que pide su SELECT, ni un campo más.
+interface CandRow {
+  id: number;
+  full_name: string | null;
+  headline: string | null;
+  education: string | null;
+  source_file: string | null;
+  raw_text: string | null;
+}
+interface VoteRow {
+  candidate_id: number;
+  vote: number;
+}
+
+const dbState = {
+  chunkRows: [] as ChunkRow[],
+  candRows: [] as CandRow[],
+  votes: [] as VoteRow[],
+};
 
 vi.mock("../db", () => ({
   getDb: async () => ({

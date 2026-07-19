@@ -76,7 +76,6 @@ export function OlazSprite({
       if (timer.current) window.clearInterval(timer.current);
     };
     // seq se recrea en cada render; dependemos de su longitud, no de la referencia.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, seq.length, fps, loop]);
 
   // Al dejar de animar en modo hover, vuelve al primer frame.

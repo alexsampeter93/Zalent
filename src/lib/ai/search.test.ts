@@ -11,7 +11,32 @@ import { norm, chunkText, queryTerms, STOPWORDS, search } from "./search";
 // normaliza), así que podemos fabricar vectores donde el "coseno" resultante
 // sea exactamente el número que queremos probar (p.ej. 0.525), sin tener que
 // simular vectores unitarios de verdad.
-const dbState = { chunkRows: [] as any[], candRows: [] as any[], votes: [] as any[] };
+// Las filas que devolvería SQLite, tipadas igual que las consulta el código
+// bajo test (nada de `any`: si mañana cambia una consulta, el test se entera).
+interface ChunkRow {
+  candidate_id: number;
+  text: string;
+  vector: string; // JSON con el array de números
+}
+interface CandRow {
+  id: number;
+  full_name: string | null;
+  email: string | null;
+  headline: string | null;
+  education: string | null;
+  source_file: string | null;
+  raw_text: string | null;
+}
+interface VoteRow {
+  candidate_id: number;
+  vote: number;
+}
+
+const dbState = {
+  chunkRows: [] as ChunkRow[],
+  candRows: [] as CandRow[],
+  votes: [] as VoteRow[],
+};
 
 vi.mock("../db", () => ({
   getDb: async () => ({

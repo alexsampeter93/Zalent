@@ -3,7 +3,8 @@ import { openCvFile } from "../../lib/files";
 import { OlazSprite } from "../../components/OlazSprite";
 import { EmptyState } from "../../components/EmptyState";
 import { CandidateFieldsForm, Info } from "../../components/CandidateFields";
-import { MatchTag, highlight } from "../../components/MatchTag";
+import { MatchTag } from "../../components/MatchTag";
+import { highlight } from "../../components/highlight";
 import { formatDateTime, initials, RELEVANT_FLOOR, matchBand } from "../../lib/display";
 import type { CandidatesState } from "./useCandidates";
 
