@@ -14,7 +14,22 @@ env.allowLocalModels = true; // buscar el modelo en local…
 env.allowRemoteModels = false; // …y NUNCA en el hub remoto.
 env.localModelPath = "/models/"; // servido desde public/models/ (mismo origen)
 // El runtime ONNX (WASM) también local, no desde el CDN de jsdelivr.
-if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = "/ort/";
+//
+// Ojo con la URL ABSOLUTA: no es un capricho. ONNX carga su fichero `.mjs` con
+// un `import()` dinámico. Con una ruta relativa ("/ort/"), Vite en modo
+// DESARROLLO la analiza, ve que apunta a `public/` —que se copia tal cual, sin
+// pasar por sus transformaciones— y la rechaza a propósito:
+//   "This file is in /public ... should not be imported from source code"
+// En la app compilada no pasaba, porque allí Vite ya no está en medio; por eso
+// el fallo sobrevivió a la verificación de la entrada 35, que se hizo sobre la
+// app instalada. Al construir la URL en tiempo de ejecución, Vite la trata como
+// externa y no la toca. El destino es el mismo origen, así que la CSP estricta
+// (`connect-src 'self'`) y el funcionamiento sin red siguen intactos.
+// (El `typeof location` es porque los tests importan este módulo desde Node,
+// donde no hay navegador. Allí nadie carga el modelo: `embed` está simulado.)
+if (env.backends?.onnx?.wasm && typeof location !== "undefined") {
+  env.backends.onnx.wasm.wasmPaths = new URL("/ort/", location.href).href;
+}
 
 // Modelo de embeddings MULTILINGÜE (entiende español) y pequeño. Convierte
 // texto en un vector de 384 números que representa su "significado".

@@ -1005,36 +1005,51 @@ async fn preference_boosts(
     use sqlx::Row;
     let empty = std::collections::HashMap::new();
 
-    let votes = sqlx::query("SELECT candidate_id, vote FROM feedback")
+    let rows = sqlx::query("SELECT candidate_id, vote FROM feedback")
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
-    if votes.is_empty() {
+    if rows.is_empty() {
         return Ok(empty);
     }
+    let mut votes = Vec::with_capacity(rows.len());
+    for row in &rows {
+        votes.push((
+            row.try_get::<i64, _>("candidate_id").map_err(|e| e.to_string())?,
+            row.try_get::<i64, _>("vote").map_err(|e| e.to_string())?,
+        ));
+    }
+    Ok(rocchio(reps, &votes))
+}
+
+// El cálculo en sí, SIN base de datos: así se puede probar contra el algoritmo
+// que tenía TypeScript y demostrar que dan el mismo número (ver los tests).
+fn rocchio(
+    reps: &std::collections::HashMap<i64, Vec<f64>>,
+    votes: &[(i64, i64)],
+) -> std::collections::HashMap<String, f64> {
+    let empty = std::collections::HashMap::new();
     let dim = match reps.values().next() {
         Some(v) => v.len(),
-        None => return Ok(empty),
+        None => return empty,
     };
 
     let (mut liked, mut disliked) = (vec![0.0f64; dim], vec![0.0f64; dim]);
     let (mut n_liked, mut n_disliked) = (0usize, 0usize);
-    for row in &votes {
-        let id: i64 = row.try_get("candidate_id").map_err(|e| e.to_string())?;
-        let vote: i64 = row.try_get("vote").map_err(|e| e.to_string())?;
-        let Some(rep) = reps.get(&id) else { continue };
-        let target = if vote > 0 { &mut liked } else { &mut disliked };
+    for (id, vote) in votes {
+        let Some(rep) = reps.get(id) else { continue };
+        let target = if *vote > 0 { &mut liked } else { &mut disliked };
         for i in 0..dim.min(rep.len()) {
             target[i] += rep[i];
         }
-        if vote > 0 {
+        if *vote > 0 {
             n_liked += 1
         } else {
             n_disliked += 1
         }
     }
     if n_liked == 0 && n_disliked == 0 {
-        return Ok(empty);
+        return empty;
     }
 
     let mut pref = vec![0.0f64; dim];
@@ -1045,19 +1060,18 @@ async fn preference_boosts(
     }
     let norm: f64 = pref.iter().map(|x| x * x).sum::<f64>().sqrt();
     if norm < 1e-8 {
-        return Ok(empty);
+        return empty;
     }
     for x in pref.iter_mut() {
         *x /= norm;
     }
 
-    Ok(reps
-        .iter()
+    reps.iter()
         .map(|(id, rep)| {
             let cos: f64 = rep.iter().zip(&pref).map(|(a, b)| a * b).sum();
             (id.to_string(), cos)
         })
-        .collect())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1091,6 +1105,65 @@ mod vector_tests {
         assert_eq!(dot(&[1.0, 0.0], &[1.0, 0.0]), 1.0); // idénticos
         assert_eq!(dot(&[1.0, 0.0], &[0.0, 1.0]), 0.0); // perpendiculares
         assert_eq!(dot(&[1.0, 0.0], &[-1.0, 0.0]), -1.0); // opuestos
+    }
+
+    // La comprobación que importa tras mover el cálculo de TypeScript a Rust:
+    // ¿da los MISMOS números que daba antes? El algoritmo viejo acumulaba en
+    // Float32Array (redondeando dos veces: en `rep` y en `pref`) y este lo hace
+    // todo en f64. Los valores esperados salen de ejecutar aquel código tal
+    // cual, sobre este mismo caso (`scratchpad/oldalgo.mjs`).
+    #[test]
+    fn rocchio_da_lo_mismo_que_el_algoritmo_viejo_de_typescript() {
+        let chunks: Vec<(i64, Vec<f32>)> = vec![
+            (1, vec![0.31, 0.72, -0.15, 0.44]),
+            (1, vec![0.28, 0.65, -0.11, 0.51]),
+            (2, vec![-0.62, 0.13, 0.77, -0.09]),
+            (2, vec![-0.58, 0.19, 0.71, -0.14]),
+            (3, vec![0.05, -0.88, 0.23, 0.41]),
+        ];
+
+        // Mismo cálculo de `rep` que hace score_chunks: media normalizada.
+        let mut sums: std::collections::HashMap<i64, (Vec<f64>, usize)> =
+            std::collections::HashMap::new();
+        for (id, v) in &chunks {
+            let acc = sums.entry(*id).or_insert_with(|| (vec![0.0; v.len()], 0));
+            for (i, x) in v.iter().enumerate() {
+                acc.0[i] += *x as f64;
+            }
+            acc.1 += 1;
+        }
+        let reps: std::collections::HashMap<i64, Vec<f64>> = sums
+            .into_iter()
+            .map(|(id, (sum, n))| {
+                let mut rep: Vec<f64> = sum.iter().map(|s| s / n as f64).collect();
+                let norm: f64 = rep.iter().map(|x| x * x).sum::<f64>().sqrt();
+                if norm > 1e-8 {
+                    for x in rep.iter_mut() {
+                        *x /= norm;
+                    }
+                }
+                (id, rep)
+            })
+            .collect();
+
+        let got = super::rocchio(&reps, &[(1, 1), (2, -1)]);
+
+        // Lo que devolvía el TypeScript de antes, con 17 decimales.
+        for (id, esperado) in [
+            ("1", 0.790_881_109_951_038_2_f64),
+            ("2", -0.790_881_061_412_078_3),
+            ("3", -0.268_610_636_922_356_43),
+        ] {
+            let d = (got[id] - esperado).abs();
+            assert!(d < 1e-6, "candidato {id}: {} vs {esperado} (dif {d})", got[id]);
+        }
+    }
+
+    #[test]
+    fn sin_votos_no_hay_empujon() {
+        let mut reps = std::collections::HashMap::new();
+        reps.insert(1i64, vec![1.0, 0.0]);
+        assert!(super::rocchio(&reps, &[]).is_empty());
     }
 
     #[test]
