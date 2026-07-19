@@ -40,6 +40,11 @@ Thumbs.db
 assets/references/
 *.zip
 
+# Material de reserva de Olaz (~27 MB): hojas de sprites y frames en crudo de
+# los que salieron las animaciones. Se guardan por si hay que regenerarlas,
+# pero no son código ni entran en la app.
+_zalent_assets_reserva/
+
 # Assets de IA del frontend (~168 MB): modelo de embeddings MiniLM + runtime
 # WASM de onnxruntime-web. No se versionan por tamaño; se regeneran con
 #   node scripts/fetch-ai-assets.mjs
