@@ -832,7 +832,7 @@ const DB_URL: &str = "sqlite:zalent.db";
 
 // Reutilizamos el pool del plugin en vez de abrir otro: una segunda conexión
 // impediría reemplazar el fichero al cifrar la BD (Windows).
-async fn vector_pool(app: &tauri::AppHandle) -> Result<sqlx::SqlitePool, String> {
+async fn db_pool(app: &tauri::AppHandle) -> Result<sqlx::SqlitePool, String> {
     tauri_plugin_sql_cipher::sqlite_pool(app, DB_URL)
         .await
         .ok_or_else(|| "la base de datos aún no está abierta".to_string())
@@ -864,6 +864,92 @@ fn dot(a: &[f32], b: &[f32]) -> f64 {
     sum
 }
 
+// ============================================================================
+// TRANSACCIONES — por qué esto no se puede hacer desde la interfaz
+//
+// El plugin SQL abre el pool con `SqlitePoolOptions::new()`, sin tocar
+// `max_connections`: el valor por defecto de sqlx, DIEZ conexiones. Cada
+// `db.execute()` coge una cualquiera del pool.
+//
+// Eso significa que la forma obvia de hacer una transacción desde TypeScript
+//   db.execute("BEGIN"); db.execute("INSERT …"); db.execute("COMMIT");
+// está ROTA de una manera especialmente traicionera: el BEGIN abre una
+// transacción en una conexión, los INSERT corren en otras (en autocommit) y el
+// COMMIT en una tercera. Código que parece transaccional y no lo es — peor que
+// no tener transacciones, porque da confianza falsa.
+//
+// Por eso la unidad no es "abrir/cerrar" sino UNA lista de sentencias que se
+// ejecutan juntas o no se ejecutan: siendo atómico por construcción, no hay
+// forma de olvidarse el COMMIT, porque no hay COMMIT que escribir. El SQL se
+// queda en TypeScript, junto a la lógica de negocio.
+// Ver Diario, entrada 46.
+// ============================================================================
+
+#[derive(Deserialize)]
+struct Statement {
+    sql: String,
+    params: Vec<serde_json::Value>,
+}
+
+// Ejecuta todas las sentencias en UNA transacción. Devuelve el id generado por
+// cada una (0 si no insertó nada), para poder encadenar.
+//
+// Un parámetro puede ser `{"__ref": n}`: se sustituye por el id que generó la
+// sentencia número n. Es lo que permite "inserta el candidato y luego sus
+// skills" sin volver a la interfaz a por el id — que es justo el viaje que
+// rompía la atomicidad.
+#[tauri::command]
+async fn db_transaction(
+    app: tauri::AppHandle,
+    statements: Vec<Statement>,
+) -> Result<Vec<i64>, String> {
+    let pool = db_pool(&app).await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut ids: Vec<i64> = Vec::with_capacity(statements.len());
+
+    for (n, st) in statements.iter().enumerate() {
+        let mut q = sqlx::query(&st.sql);
+        for p in &st.params {
+            q = match p {
+                serde_json::Value::Null => q.bind(None::<String>),
+                serde_json::Value::Bool(b) => q.bind(*b),
+                serde_json::Value::String(s) => q.bind(s.clone()),
+                serde_json::Value::Number(x) => {
+                    // Los enteros se atan como enteros: si un id viajara como
+                    // f64, SQLite guardaría un REAL y las comparaciones con la
+                    // clave primaria dejarían de encontrarlo.
+                    match x.as_i64() {
+                        Some(i) => q.bind(i),
+                        None => q.bind(x.as_f64().unwrap_or_default()),
+                    }
+                }
+                serde_json::Value::Object(o) => {
+                    let idx = o
+                        .get("__ref")
+                        .and_then(|v| v.as_u64())
+                        .ok_or_else(|| format!("parámetro no soportado en la sentencia {n}"))?
+                        as usize;
+                    let id = *ids
+                        .get(idx)
+                        .ok_or_else(|| format!("__ref {idx} apunta a una sentencia posterior"))?;
+                    q.bind(id)
+                }
+                other => return Err(format!("parámetro no soportado: {other}")),
+            };
+        }
+        let res = q
+            .execute(&mut *tx)
+            .await
+            // El número de sentencia hace falta para poder localizarla: si no,
+            // el error dice "falló" sin decir dónde.
+            .map_err(|e| format!("sentencia {n} falló ({}): {e}", st.sql))?;
+        ids.push(res.last_insert_rowid());
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(ids)
+}
+
 #[derive(Deserialize)]
 struct ChunkInput {
     idx: i64,
@@ -881,7 +967,7 @@ async fn store_chunks(
     model: String,
     chunks: Vec<ChunkInput>,
 ) -> Result<usize, String> {
-    let pool = vector_pool(&app).await?;
+    let pool = db_pool(&app).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
     sqlx::query("DELETE FROM candidate_chunks WHERE candidate_id = ? AND model = ?")
@@ -936,7 +1022,7 @@ async fn score_chunks(
     query: Vec<f32>,
 ) -> Result<ScoreResult, String> {
     use sqlx::Row;
-    let pool = vector_pool(&app).await?;
+    let pool = db_pool(&app).await?;
 
     let rows = sqlx::query(
         "SELECT candidate_id, text, vector FROM candidate_chunks WHERE model = ?",
@@ -1657,6 +1743,7 @@ pub fn run() {
             delete_orphan_backups,
             store_chunks,
             score_chunks,
+            db_transaction,
             ollama_status,
             ollama_extract,
             ollama_pull
