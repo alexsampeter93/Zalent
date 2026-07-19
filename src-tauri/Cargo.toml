@@ -42,6 +42,10 @@ tauri-plugin-sql = { path = "vendor/tauri-plugin-sql-cipher" }
 argon2 = "0.5"
 getrandom = "0.2"
 aes-gcm = "0.10"
+# Solo para la MIGRACIÓN de la BD a cifrado (encrypt_database): necesita abrir
+# SQLite directamente para el `sqlcipher_export`. Es el mismo sqlx que ya usa
+# el plugin por debajo, así que no añade tiempo de compilación real.
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 # Cliente HTTP para hablar con Ollama en localhost. `default-features = false`
 # quita el TLS a propósito: solo llamamos a http://127.0.0.1, no necesitamos
 # cifrado de transporte, y así NO arrastra OpenSSL.

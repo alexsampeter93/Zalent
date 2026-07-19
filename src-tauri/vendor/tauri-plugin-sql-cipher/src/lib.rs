@@ -62,6 +62,22 @@ impl DbEncryptionKey {
     }
 }
 
+/// Cierra todas las conexiones abiertas a la BD.
+///
+/// Hace falta antes de REEMPLAZAR el fichero de la base de datos en disco
+/// (la migración a cifrado): en Windows no se puede sobrescribir un fichero
+/// que sigue abierto — daría "acceso denegado". Tras llamar a esto, la app
+/// debería reiniciarse o volver a cargar la BD, porque los pools quedan
+/// cerrados.
+pub async fn close_all_pools<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(instances) = app.try_state::<DbInstances>() {
+        let instances = instances.0.read().await;
+        for pool in instances.values() {
+            pool.close().await;
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum LastInsertId {
