@@ -10,6 +10,7 @@ import {
   dbEncryptionStatus,
   encryptDatabase,
   deletePlaintextBackups,
+  deleteOrphanBackups,
   type DbEncryptionStatus,
 } from "../lib/lock";
 import { useThemeMode, type ThemeMode } from "../lib/theme";
@@ -355,6 +356,22 @@ function DatabaseEncryptionCard() {
     }
   }
 
+  // Sin confirmación, a diferencia de las copias en claro: aquí no se pierde
+  // nada recuperable (ver `delete_orphan_backups` en Rust).
+  async function onDeleteOrphans() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const n = await deleteOrphanBackups();
+      setMsg(`✅ Limpiado(s) ${n} archivo(s) sobrante(s).`);
+      await refresh();
+    } catch (e) {
+      setMsg("⚠️ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!status) return null;
 
   return (
@@ -467,6 +484,35 @@ function DatabaseEncryptionCard() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {status.orphans.length > 0 && (
+        <div className="confirm-delete">
+          <p className="confirm-delete__text">
+            🧹 Hay{" "}
+            {status.orphans.length === 1
+              ? "un archivo sobrante"
+              : `${status.orphans.length} archivos sobrantes`}{" "}
+            de migraciones anteriores ({formatBytes(status.orphan_bytes)}). Están
+            cifrados con una <strong>contraseña que ya no existe</strong>, así
+            que no son un riesgo — pero tampoco sirven para recuperar nada y
+            ocupan espacio.
+          </p>
+          <ul className="batch-errors">
+            {status.orphans.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+          <div className="actions">
+            <button
+              className="btn-secondary"
+              onClick={onDeleteOrphans}
+              disabled={busy}
+            >
+              {busy ? "Limpiando…" : "Limpiar archivos sobrantes"}
+            </button>
+          </div>
         </div>
       )}
 

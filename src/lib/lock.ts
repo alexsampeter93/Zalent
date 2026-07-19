@@ -40,6 +40,11 @@ export interface DbEncryptionStatus {
   // existan, hay datos personales en claro en el disco.
   backups: string[];
   backup_bytes: number;
+  // Restos que ya NO se pueden abrir con ninguna contraseña: copias cifradas
+  // con una clave que dejó de existir, o migraciones interrumpidas. No son una
+  // fuga (nadie puede leerlos), pero ocupan lo mismo que la base de datos.
+  orphans: string[];
+  orphan_bytes: number;
 }
 
 export async function dbEncryptionStatus(): Promise<DbEncryptionStatus> {
@@ -56,4 +61,10 @@ export async function encryptDatabase(): Promise<string> {
 // Borra las copias sin cifrar. Solo se permite si la BD ya está cifrada.
 export async function deletePlaintextBackups(): Promise<number> {
   return invoke<number>("delete_plaintext_backups");
+}
+
+// Borra los restos ilegibles. No necesita comprobaciones: ya no hay clave que
+// pueda abrirlos, así que no son la red de seguridad de nadie.
+export async function deleteOrphanBackups(): Promise<number> {
+  return invoke<number>("delete_orphan_backups");
 }

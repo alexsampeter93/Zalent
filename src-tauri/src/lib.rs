@@ -688,40 +688,79 @@ pub struct DbEncryptionStatus {
     // muestran en la interfaz y se pueden borrar desde ahí.
     backups: Vec<String>,
     backup_bytes: u64,
+    // Restos que ya NO se pueden abrir: copias cifradas con una clave que ya no
+    // existe (las deja quitar la contraseña maestra, que borra la sal) y
+    // ficheros `migrando-` de una migración interrumpida a lo bruto. No son una
+    // fuga —nadie puede leerlos, ni siquiera el dueño— pero cada uno ocupa lo
+    // mismo que la base de datos entera, así que hay que poder limpiarlos.
+    orphans: Vec<String>,
+    orphan_bytes: u64,
 }
 
-fn plaintext_backups(app: &tauri::AppHandle) -> Result<Vec<std::path::PathBuf>, String> {
-    let dir = db_file(app)?
-        .parent()
-        .ok_or("ruta de BD inválida")?
-        .to_path_buf();
+// Un fichero sobrante junto a la BD, clasificado por lo que REALMENTE es.
+struct Leftover {
+    path: std::path::PathBuf,
+    bytes: u64,
+    // true  = SQLite en claro   -> fuga de datos personales
+    // false = cifrado (o basura) -> ilegible sin una clave que ya no tenemos
+    plaintext: bool,
+}
+
+// Busca los restos que dejan las migraciones de cifrado.
+//
+// Se clasifican leyendo la CABECERA del fichero, no su nombre. Un `plano-*.bak`
+// es en claro por construcción, pero un `migrando-*` puede ser cualquiera de
+// las dos cosas según en qué sentido iba la migración interrumpida — y de la
+// respuesta depende si es una fuga urgente o simple basura.
+fn leftover_db_files(app: &tauri::AppHandle) -> Result<Vec<Leftover>, String> {
+    let db = db_file(app)?;
+    let dir = db.parent().ok_or("ruta de BD inválida")?.to_path_buf();
     let mut out = Vec::new();
     if !dir.exists() {
         return Ok(out);
     }
     for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
         let path = entry.map_err(|e| e.to_string())?.path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        if name.starts_with("zalent.db.plano-") && name.ends_with(".bak") {
-            out.push(path);
+        if path == db || !path.is_file() {
+            continue; // la base de datos en uso jamás entra aquí
         }
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let es_resto = name.starts_with("zalent.db.")
+            && (name.ends_with(".bak") || name.contains(".migrando-"));
+        if !es_resto {
+            continue;
+        }
+        let bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        out.push(Leftover {
+            plaintext: looks_plaintext(&path)?,
+            path,
+            bytes,
+        });
     }
-    out.sort();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
+}
+
+// Los restos LEGIBLES: los que contienen datos personales en claro.
+fn plaintext_backups(app: &tauri::AppHandle) -> Result<Vec<std::path::PathBuf>, String> {
+    Ok(leftover_db_files(app)?
+        .into_iter()
+        .filter(|l| l.plaintext)
+        .map(|l| l.path)
+        .collect())
 }
 
 #[tauri::command]
 fn db_encryption_status(app: tauri::AppHandle) -> Result<DbEncryptionStatus, String> {
     let encrypted = read_vault(&app)?.map(|v| v.db_encrypted).unwrap_or(false);
-    let paths = plaintext_backups(&app)?;
-    let backup_bytes = paths
-        .iter()
-        .filter_map(|p| fs::metadata(p).ok().map(|m| m.len()))
-        .sum();
+    let (claros, cifrados): (Vec<_>, Vec<_>) =
+        leftover_db_files(&app)?.into_iter().partition(|l| l.plaintext);
     Ok(DbEncryptionStatus {
         encrypted,
-        backups: paths.iter().map(|p| p.display().to_string()).collect(),
-        backup_bytes,
+        backup_bytes: claros.iter().map(|l| l.bytes).sum(),
+        backups: claros.iter().map(|l| l.path.display().to_string()).collect(),
+        orphan_bytes: cifrados.iter().map(|l| l.bytes).sum(),
+        orphans: cifrados.iter().map(|l| l.path.display().to_string()).collect(),
     })
 }
 
@@ -739,6 +778,30 @@ fn delete_plaintext_backups(app: tauri::AppHandle) -> Result<usize, String> {
     let mut n = 0usize;
     for path in plaintext_backups(&app)? {
         fs::remove_file(&path).map_err(|e| format!("no se pudo borrar {}: {e}", path.display()))?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+// Borra los restos ILEGIBLES. A diferencia del anterior, este no necesita
+// ninguna comprobación previa, y conviene entender por qué:
+//
+//   - La única forma de que exista una copia `cifrada-` es haber QUITADO la
+//     contraseña maestra, operación que borra `vault.json` (donde vive la sal).
+//     Sin sal no se puede volver a derivar aquella clave: la copia es
+//     irrecuperable por diseño, no por descuido.
+//   - Un `migrando-` cifrado es un destino a medio escribir que nunca llegó a
+//     verificarse. La BD original nunca se toca hasta después de verificar, así
+//     que ese fichero no contiene nada que no esté ya en la base de datos.
+//
+// Es decir: no estamos borrando una red de seguridad, estamos borrando algo que
+// ya no puede rescatar a nadie.
+#[tauri::command]
+fn delete_orphan_backups(app: tauri::AppHandle) -> Result<usize, String> {
+    let mut n = 0usize;
+    for l in leftover_db_files(&app)?.into_iter().filter(|l| !l.plaintext) {
+        fs::remove_file(&l.path)
+            .map_err(|e| format!("no se pudo borrar {}: {e}", l.path.display()))?;
         n += 1;
     }
     Ok(n)
@@ -1199,6 +1262,7 @@ pub fn run() {
             encrypt_database,
             db_encryption_status,
             delete_plaintext_backups,
+            delete_orphan_backups,
             ollama_status,
             ollama_extract,
             ollama_pull

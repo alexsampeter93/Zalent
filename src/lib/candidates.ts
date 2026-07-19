@@ -313,4 +313,12 @@ export async function updateCandidate(
       [id, name],
     );
   }
+
+  // Invalidamos el índice de búsqueda de ESTE candidato. Los fragmentos de
+  // `candidate_chunks` se generaron a partir de nombre/puesto/estudios/texto:
+  // si acabamos de cambiarlos, ese índice quedó obsoleto y la búsqueda
+  // semántica seguiría encontrando al candidato por sus datos VIEJOS.
+  // Al borrarlos, `indexAllCandidates()` lo ve "sin indexar" y lo reconstruye
+  // en la siguiente búsqueda (solo indexa a quien no tiene fragmentos).
+  await db.execute("DELETE FROM candidate_chunks WHERE candidate_id = $1", [id]);
 }
