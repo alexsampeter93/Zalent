@@ -249,6 +249,39 @@ describe("useCandidates: búsqueda", () => {
     ]);
   });
 
+  it("en modo búsqueda, editar un candidato actualiza su fila (no muestra el dato viejo)", async () => {
+    // Regresión de un bug real: se editaba el puesto de un candidato con una
+    // búsqueda activa, se guardaba bien en la ficha, pero la lista seguía
+    // mostrando el puesto VIEJO hasta reiniciar la app. El resultado de
+    // búsqueda es una foto fija; los datos de display deben salir de
+    // `candidates` (que sí se refresca al editar), no de esa foto.
+    // Estado de partida COHERENTE: tanto la lista como el resultado de
+    // búsqueda ven a Bruno como "Auxiliar" (es su puesto antes de editar).
+    vi.mocked(listCandidates).mockResolvedValue([CAND_1, { ...CAND_2, headline: "Auxiliar" }]);
+    vi.mocked(search).mockResolvedValue([
+      { id: 2, full_name: "Bruno Ruiz", email: null, headline: "Auxiliar", source_file: "bruno.pdf", score: 0.8, evidence: "", matched: [], why: "" },
+    ]);
+    const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
+    await waitFor(() => expect(result.current.rows).toHaveLength(2));
+
+    act(() => { result.current.setQuery("auxiliar"); });
+    await act(async () => { await result.current.doSearch(); });
+    expect(result.current.rows[0]).toEqual(expect.objectContaining({ id: 2, headline: "Auxiliar" }));
+
+    // Editamos: refreshCandidates traerá a Bruno ya como "Profesor".
+    vi.mocked(listCandidates).mockResolvedValue([
+      CAND_1,
+      { ...CAND_2, headline: "Profesor" },
+    ]);
+    act(() => { result.current.selectCandidate(2); });
+    await act(async () => { await result.current.onUpdate(); });
+
+    // Sigue en modo búsqueda (mismo orden por relevancia), pero el puesto ya es
+    // el nuevo, sin necesidad de reiniciar ni de volver a buscar.
+    expect(result.current.searchMode).toBe(true);
+    expect(result.current.rows[0]).toEqual(expect.objectContaining({ id: 2, headline: "Profesor", match: 0.8 }));
+  });
+
   it("clearSearch vacía la consulta y sale del modo búsqueda", async () => {
     const { result } = renderHook(() => useCandidates({ active: true, ready: true }));
     await waitFor(() => expect(result.current.rows).toHaveLength(2));

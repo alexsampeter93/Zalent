@@ -524,11 +524,27 @@ export function useCandidates({
   // ---- Datos derivados (para pintar la tabla/lista) ----
   // Filas: resultados de búsqueda o todos los candidatos.
   const searchMode = hasSearched && query.trim() !== "";
+  // El resultado de búsqueda es una FOTO del momento en que se buscó: si luego
+  // editas a un candidato, esa foto no cambia. Por eso los datos de display
+  // (nombre, puesto…) NO se leen del resultado, sino de `candidates`, que sí se
+  // refresca al editar (refreshCandidates). Del resultado se usa solo el score,
+  // que es lo único que la lista de candidatos no sabe calcular. Así el orden
+  // por relevancia se mantiene y los datos son siempre los actuales.
+  // (Antes esto causaba que un puesto editado durante una búsqueda siguiera
+  // mostrando el valor viejo hasta reiniciar la app.)
+  const candById = new Map(candidates.map((c) => [c.id, c]));
   const rows: Row[] = searchMode
-    ? results.map((r) => ({
-        id: r.id, full_name: r.full_name, email: r.email,
-        headline: r.headline, source_file: r.source_file, match: r.score,
-      }))
+    ? results.map((r) => {
+        const c = candById.get(r.id);
+        return {
+          id: r.id,
+          full_name: c?.full_name ?? r.full_name,
+          email: c?.email ?? r.email,
+          headline: c?.headline ?? r.headline,
+          source_file: c?.source_file ?? r.source_file,
+          match: r.score,
+        };
+      })
     : candidates.map((c) => ({
         id: c.id, full_name: c.full_name, email: c.email,
         headline: c.headline, source_file: c.source_file,
