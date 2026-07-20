@@ -1475,6 +1475,74 @@ fn extraction_schema() -> serde_json::Value {
     })
 }
 
+// Generación de TEXTO LIBRE con el mismo motor que la extracción.
+//
+// A diferencia de `ollama_extract`, aquí no hay esquema JSON ni validador de
+// anclaje: estas tareas (resumir, sugerir preguntas, redactar un email) son
+// generativas, no extractivas. Por eso el comando es tan tonto a propósito —
+// solo transporta instrucciones y devuelve texto. QUÉ se le pide (el prompt del
+// sistema, el del usuario) lo decide TypeScript, que es donde se lee y se
+// ajusta. Rust es el cable, no el cerebro. Ver Diario, entrada 51.
+//
+// `temperature` la elige quien llama: 0 para algo que debe ser reproducible
+// (un resumen), algo más alta para variedad (preguntas de entrevista).
+#[derive(Serialize)]
+pub struct OllamaGenerateResult {
+    text: String,
+    ms: u64,
+    error: String,
+}
+
+#[tauri::command]
+async fn ollama_generate(
+    model: String,
+    system: String,
+    prompt: String,
+    temperature: f64,
+) -> OllamaGenerateResult {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": prompt }
+        ],
+        "stream": false,
+        "options": { "temperature": temperature }
+    });
+
+    let client = reqwest::Client::builder()
+        // Mismo motivo que en extract: un 7B por CPU tarda, y el timeout por
+        // defecto lo cortaría a media respuesta pareciendo un fallo.
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let resp = client
+        .post(format!("{OLLAMA_URL}/api/chat"))
+        .json(&body)
+        .send()
+        .await;
+    let ms = started.elapsed().as_millis() as u64;
+
+    match resp {
+        Ok(r) => match r.json::<serde_json::Value>().await {
+            Ok(v) => {
+                if let Some(err) = v["error"].as_str() {
+                    return OllamaGenerateResult { text: String::new(), ms, error: err.to_string() };
+                }
+                OllamaGenerateResult {
+                    text: v["message"]["content"].as_str().unwrap_or("").trim().to_string(),
+                    ms,
+                    error: String::new(),
+                }
+            }
+            Err(e) => OllamaGenerateResult { text: String::new(), ms, error: e.to_string() },
+        },
+        Err(e) => OllamaGenerateResult { text: String::new(), ms, error: e.to_string() },
+    }
+}
+
 #[tauri::command]
 async fn ollama_extract(model: String, cv_text: String) -> OllamaExtractResult {
     let prompt = format!(
@@ -1802,6 +1870,7 @@ pub fn run() {
             save_export,
             ollama_status,
             ollama_extract,
+            ollama_generate,
             ollama_pull
         ])
         .build(tauri::generate_context!())

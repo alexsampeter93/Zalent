@@ -101,3 +101,29 @@ export async function ollamaExtract(
   out.rejected = report.rejected;
   return out;
 }
+
+export interface GenerateResult {
+  text: string;
+  ms: number;
+  error: string;
+}
+
+// Generación de TEXTO LIBRE (resumen, preguntas de entrevista, email…).
+//
+// A diferencia de `ollamaExtract`, aquí NO hay validador de anclaje: son tareas
+// generativas, no extractivas (ver Diario 51). El anclaje se hace en el propio
+// prompt ("básate solo en el CV"), no comprobando la salida palabra por palabra
+// como en la extracción. Por eso el texto que devuelve es siempre un BORRADOR
+// para revisar, nunca un dato para dar por cierto.
+export async function ollamaGenerate(
+  system: string,
+  prompt: string,
+  temperature = 0,
+): Promise<GenerateResult> {
+  return invoke<GenerateResult>("ollama_generate", {
+    model: AI_MODEL,
+    system,
+    prompt,
+    temperature,
+  });
+}

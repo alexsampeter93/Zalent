@@ -1,6 +1,7 @@
 import { STATUSES } from "../../lib/candidates";
 import { openCvFile } from "../../lib/files";
 import { reportError } from "../../lib/errors";
+import { AiAssistCard } from "../../components/AiAssistCard";
 import { OlazSprite } from "../../components/OlazSprite";
 import { EmptyState } from "../../components/EmptyState";
 import { CandidateFieldsForm, Info } from "../../components/CandidateFields";
@@ -664,6 +665,11 @@ export function CandidatesScreen({
                     )}
                   </div>
                 )}
+
+                <AiAssistCard
+                  candidate={detail}
+                  vacancyTitle={candOffers[0]?.title}
+                />
 
                 <p className="card__title notes-title">Notas ({notes.length})</p>
                 <div className="note-add">

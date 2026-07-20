@@ -2198,3 +2198,52 @@ mark {
 .toast__close:hover {
   background: rgba(0, 0, 0, 0.08);
 }
+
+/* ---------- Asistente IA en la ficha del candidato ----------
+   Resumen, preguntas de entrevista y email de rechazo con el LLM local.
+   Ver src/components/AiAssistCard.tsx y el Diario, entrada 51. */
+.ai-assist {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+
+.ai-assist__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-assist__result {
+  margin-top: 12px;
+}
+
+.ai-assist__result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-assist__badge {
+  font-size: 12px;
+  color: var(--muted);
+  /* Deja claro de un vistazo que el texto es de la IA y cuánto tardó. */
+  font-weight: 600;
+}
+
+.ai-assist__text {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
