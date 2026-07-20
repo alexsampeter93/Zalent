@@ -37,7 +37,7 @@ export function CandidatesScreen({
     tags, onRemoveTag, tagInput, setTagInput, onAddTag, selectedHit,
     deleting, onDelete, editForm, setEditField, savingEdit, onUpdate, setEditing,
     notes, newNote, setNewNote, onAddNote, savingNote, onDeleteNote,
-    exporting, exportMsg, onExport,
+    exporting, exportMsg, onExport, printing, onPrintDossier,
   } = cand;
 
   return (
@@ -212,6 +212,18 @@ export function CandidatesScreen({
             }
           >
             {exporting ? "Exportando…" : "⬇ Exportar CSV"}
+          </button>
+          <button
+            className="btn-sm"
+            onClick={onPrintDossier}
+            disabled={printing || visibleRows.length === 0}
+            title={
+              selectedIds.size > 0
+                ? `Genera un dossier PDF de los ${selectedIds.size} candidatos seleccionados`
+                : "Genera un dossier PDF presentable de los candidatos que estás viendo"
+            }
+          >
+            {printing ? "Preparando…" : "🖨 Dossier PDF"}
           </button>
           <button
             className="btn-sm classify-btn"

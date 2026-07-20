@@ -7,6 +7,7 @@ import {
   updateCandidate,
   deleteCandidate,
   anonymizeCandidate,
+  listForExport,
   type CandidateRow,
   type CandidateDetail,
 } from "../../lib/candidates";
@@ -22,6 +23,8 @@ import {
 import { indexAllCandidates, search, type SearchHit } from "../../lib/ai/search";
 import { reportError } from "../../lib/errors";
 import { exportCandidatesCsv } from "../../lib/exportCandidates";
+import { buildDossierHtml } from "../../lib/dossier";
+import { printHtml } from "../../lib/print";
 import {
   listVacancies,
   listAllMemberships,
@@ -604,6 +607,33 @@ export function useCandidates({
     }
   }
 
+  // ---- Dossier (PDF vía impresión del sistema) ----
+  // Misma selección que el CSV (lo visible, o lo marcado a mano). El CSV son
+  // datos para Excel; esto es un documento presentable para enseñar.
+  const [printing, setPrinting] = useState(false);
+  async function onPrintDossier() {
+    setPrinting(true);
+    setExportMsg("");
+    try {
+      const ids =
+        selectedIds.size > 0
+          ? new Set(selectedIds)
+          : new Set(visibleRows.map((r) => r.id));
+      const all = await listForExport();
+      const rows = all.filter((c) => ids.has(c.id));
+      // Si el usuario está viendo una sola oferta, el dossier se titula con ella.
+      const title =
+        filterVacancy !== "all"
+          ? vacancyList.find((v) => v.id === filterVacancy)?.title
+          : undefined;
+      printHtml(buildDossierHtml(rows, { title }));
+    } catch (e) {
+      reportError("No se pudo preparar el dossier", e);
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   const hitById = new Map(results.map((r) => [r.id, r]));
   const selectedHit = selectedId != null ? hitById.get(selectedId) : undefined;
   const relevantCount = searchMode
@@ -637,7 +667,7 @@ export function useCandidates({
     selectCandidate, onAddTag, onRemoveTag, backToList, startEdit, setEditField,
     onUpdate, onDelete, onAnonymize, onOfferStageChange, onAddNote, onDeleteNote, onVote,
     // exportar
-    exporting, exportMsg, onExport,
+    exporting, exportMsg, onExport, printing, onPrintDossier,
     // avisos y derivados
     showCandReminder, searchMode, rows, filtersActive, visibleRows,
     selectedHit, relevantCount, unclassifiedCount,
