@@ -2210,6 +2210,13 @@ mark {
   background: var(--surface-2);
 }
 
+/* Cuando el modelo no está descargado: misma tarjeta, más apagada, para que se
+   note que es una función disponible-pero-inactiva, no un error. */
+.ai-assist--off {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
 .ai-assist__actions {
   display: flex;
   flex-wrap: wrap;

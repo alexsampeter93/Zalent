@@ -33,19 +33,71 @@ export function AiAssistCard({
 }) {
   // null = aún comprobando; el modelo tarda un momento en responder al arranque.
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<Kind | null>(null);
   const [kind, setKind] = useState<Kind | null>(null);
   const [text, setText] = useState("");
   const [ms, setMs] = useState(0);
   const [copied, setCopied] = useState(false);
 
+  async function check() {
+    setChecking(true);
+    try {
+      setAvailable(await isModelReady());
+    } finally {
+      setChecking(false);
+    }
+  }
+
   useEffect(() => {
-    isModelReady().then(setAvailable);
+    // Se comprueba al abrir la ficha y OTRA VEZ a los 3 segundos si dio que no.
+    // Motivo: el sidecar de Ollama tarda unos segundos en levantarse tras
+    // abrir la app; si entras rápido en un candidato, la primera comprobación
+    // sale negativa y sin reintento la tarjeta se quedaría muerta toda la
+    // sesión aunque el modelo esté ahí. Ver Diario, entrada 53.
+    let alive = true;
+    let timer: number | undefined;
+    isModelReady().then((ok) => {
+      if (!alive) return;
+      setAvailable(ok);
+      if (!ok) {
+        timer = window.setTimeout(() => {
+          if (alive) isModelReady().then((r) => alive && setAvailable(r));
+        }, 3000);
+      }
+    });
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
-  // Si la IA no está lista, no ocupamos sitio con la tarjeta: es una función
-  // opt-in y quien no la ha activado no debería ni verla a medias.
-  if (available !== true) return null;
+  // Mientras se comprueba por primera vez no pintamos nada: un parpadeo de
+  // "no disponible" que se corrige solo confunde más que el silencio.
+  if (available === null) return null;
+
+  // Si la IA no está lista, la tarjeta SÍ aparece, explicando por qué y qué
+  // hacer. Antes se ocultaba entera, y eso dejaba al usuario sin saber si
+  // faltaba algo o si la app estaba rota — el mismo fallo de los errores
+  // invisibles de la entrada 48, repetido aquí.
+  if (available === false) {
+    return (
+      <section className="ai-assist ai-assist--off">
+        <p className="card__title">Asistente IA</p>
+        <p className="card__intro">
+          Puede resumir el perfil, sugerir preguntas de entrevista y redactar un
+          email de rechazo, todo en tu equipo. Necesita el{" "}
+          <strong>modelo de IA local</strong>, que se descarga una sola vez
+          desde <strong>Importar</strong> (unos 4,7 GB).
+        </p>
+        <div className="ai-assist__actions">
+          <button className="btn-sm btn-ghost" onClick={check} disabled={checking}>
+            {checking ? "Comprobando…" : "Comprobar de nuevo"}
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   async function run(k: Kind) {
     setBusy(k);
