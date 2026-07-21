@@ -81,6 +81,15 @@ describe("summarizeCandidate", () => {
     expect(system.toLowerCase()).toContain("únicamente");
     expect(prompt).toContain("Ana Pérez");
   });
+
+  it("el system pide copiar los nombres propios sin alterarlos", async () => {
+    // Regresión de un caso real: el modelo cambió "Supermercados" por
+    // "supermercades". No se puede garantizar en algo generativo, pero el
+    // prompt debe pedirlo explícitamente. Ver Diario, entrada 53.
+    await summarizeCandidate(CAND);
+    const [system] = lastCall();
+    expect(system.toLowerCase()).toContain("exactamente");
+  });
 });
 
 describe("interviewQuestions", () => {

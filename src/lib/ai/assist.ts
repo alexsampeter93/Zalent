@@ -36,7 +36,13 @@ const SUMMARY_SYSTEM =
   "Eres un asistente de selección de personal. Resumes el perfil de un " +
   "candidato de forma objetiva, breve y en español. Te basas ÚNICAMENTE en la " +
   "información de su ficha y su CV: si un dato no aparece, no lo mencionas ni " +
-  "lo supones. No exageras ni valoras; solo resumes lo que hay.";
+  "lo supones. No exageras ni valoras; solo resumes lo que hay. " +
+  // Un LLM tiende a "regularizar" nombres propios poco frecuentes (una cadena
+  // como VEGO Supermercados se le puede convertir en "supermercades"). No se
+  // puede evitar del todo en algo generativo, pero insistir baja la frecuencia.
+  // Ver Diario, entrada 53.
+  "Copia los nombres propios (empresas, lugares, personas, títulos) EXACTAMENTE " +
+  "como aparecen, letra por letra, sin corregirlos ni cambiarlos.";
 
 export function summarizeCandidate(c: CandidateDetail): Promise<GenerateResult> {
   const prompt =
