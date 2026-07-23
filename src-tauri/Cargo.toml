@@ -42,6 +42,9 @@ tauri-plugin-sql = { path = "vendor/tauri-plugin-sql-cipher" }
 argon2 = "0.5"
 getrandom = "0.2"
 aes-gcm = "0.10"
+# Borrado seguro de la clave de sesión en memoria (que no quede en un volcado
+# de RAM tras bloquear o quitar la contraseña). Ver S2 en PENDIENTES.
+zeroize = "1"
 # Solo para la MIGRACIÓN de la BD a cifrado (encrypt_database): necesita abrir
 # SQLite directamente para el `sqlcipher_export`. Es el mismo sqlx que ya usa
 # el plugin por debajo, así que no añade tiempo de compilación real.

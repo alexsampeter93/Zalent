@@ -141,7 +141,14 @@ export async function search(query: string, limit = 20): Promise<SearchHit[]> {
   // son textos y números, no vectores.
   const scoring = await scoreAgainst(q, norm);
 
-  // Datos de cada candidato (para la parte léxica y para mostrar).
+  // La parte léxica sale del texto VIVO del candidato (raw_text incluido), no
+  // de los fragmentos indexados: el índice es un caché derivado que puede quedar
+  // algo desfasado o recortado (tope de fragmentos), y entonces una coincidencia
+  // literal que SÍ está en el CV dejaría de encontrarse. La corrección manda
+  // sobre el ahorro: reintrodujimos `raw_text` aquí tras ver que "leroy" (que
+  // estaba en un CV) no salía. La optimización de no traer `raw_text` sigue
+  // pendiente (E1), pero hecha bien: sobre el texto vivo (FTS5/Rust), no sobre
+  // el índice. Ver Diario 55/59.
   const cands = await db.select<
     {
       id: number;
@@ -169,11 +176,14 @@ export async function search(query: string, limit = 20): Promise<SearchHit[]> {
     // Semántica calibrada: SEM_FLOOR -> 0, SEM_TOP -> 1.
     const calibSem = Math.min(1, Math.max(0, (cos - SEM_FLOOR) / (SEM_TOP - SEM_FLOOR)));
 
-    // Léxica: qué términos de la búsqueda aparecen literalmente.
-    const toks = norm(
-      [c.full_name, c.headline, c.education, c.raw_text].filter(Boolean).join(" "),
-    ).split(" ");
-    const matched = terms.filter((t) => toks.includes(t));
+    // Léxica: qué términos de la búsqueda aparecen literalmente en el texto
+    // VIVO del candidato. Un Set hace las comprobaciones O(1).
+    const toks = new Set(
+      norm(
+        [c.full_name, c.headline, c.education, c.raw_text].filter(Boolean).join(" "),
+      ).split(" "),
+    );
+    const matched = terms.filter((t) => toks.has(t));
     const lexCoverage = terms.length ? matched.length / terms.length : 0;
 
     // Mezcla GRADUADA (no binaria): 60% significado + 40% coincidencia exacta.

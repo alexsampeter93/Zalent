@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { extractText } from "../../lib/extract";
+import { assessExtraction } from "../../lib/extract-quality";
 import { guessFields } from "../../lib/parse";
 import { saveCandidate } from "../../lib/candidates";
 import { saveCvFile } from "../../lib/files";
@@ -29,6 +30,9 @@ export function useImport({
   const [extracting, setExtracting] = useState(false);
   const [extractedText, setExtractedText] = useState("");
   const [extractError, setExtractError] = useState("");
+  // Aviso cuando el CV se leyó mal (poco texto / fragmentado). No es un error
+  // —la ficha se guarda igual—, pero el usuario debe saber que quedará floja.
+  const [extractWarning, setExtractWarning] = useState("");
   const [fileKey, setFileKey] = useState(0);
   const [form, setForm] = useState<CandidateForm>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -120,11 +124,13 @@ export function useImport({
     setCurrentFile(file);
     setExtractedText("");
     setExtractError("");
+    setExtractWarning("");
     setSaveError("");
     setExtracting(true);
     try {
       const text = await extractText(file);
       setExtractedText(text);
+      setExtractWarning(assessExtraction(text).message);
       setForm({ ...emptyForm, ...guessFields(text, file.name) });
     } catch (err) {
       setExtractError(String(err));
@@ -151,9 +157,11 @@ export function useImport({
     // sería una avalancha de avisos en un lote de 200.
     let aiFailures = 0;
     let fileFailures = 0;
+    let poorExtraction = 0; // CVs de los que apenas se sacó texto o salió roto
     for (const file of files) {
       try {
         const text = await extractText(file);
+        if (!assessExtraction(text).ok) poorExtraction++;
         const g = guessFields(text, file.name);
 
         // Base: las reglas de siempre. Fiables para email/teléfono/enlaces,
@@ -227,6 +235,12 @@ export function useImport({
         "comprueba en Ajustes que el modelo está descargado y disponible",
       );
     }
+    if (poorExtraction > 0) {
+      reportError(
+        `De ${poorExtraction} CV(s) apenas se pudo leer texto (o salió fragmentado); se importaron pero su ficha quedará floja y la búsqueda puede no encontrarlos`,
+        "suelen ser PDFs escaneados/foto o plantillas con las letras muy espaciadas; mejor un CV con texto normal",
+      );
+    }
     setBatchErrors(errors);
     setBatchRunning(false);
     setBatchKey((k) => k + 1);
@@ -292,7 +306,7 @@ export function useImport({
   }
 
   return {
-    fileName, currentFile, extracting, extractedText, extractError, fileKey,
+    fileName, currentFile, extracting, extractedText, extractError, extractWarning, fileKey,
     form, saving, saveError,
     batchRunning, batchTotal, batchDone, batchErrors, batchKey, showBatchMsg,
     importReminder,

@@ -120,7 +120,7 @@ export function Pipeline() {
       ) : cands.length === 0 ? (
         <div className="screen-scroll">
           <EmptyState
-            image="coco-sleeping-cv"
+            peek="olaz-peek-wave"
             title="Esta oferta aún no tiene candidatos"
             subtitle="Ve a Vacantes, abre la oferta y usa “Puntuar candidatos y añadir” para llenar el tablero."
           />

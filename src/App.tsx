@@ -11,6 +11,8 @@ import { ImportScreen } from "./screens/import/ImportScreen";
 import { useCandidates } from "./screens/candidates/useCandidates";
 import { CandidatesScreen } from "./screens/candidates/CandidatesScreen";
 import { ErrorToasts } from "./components/ErrorToasts";
+import { Onboarding } from "./screens/Onboarding";
+import { hasSeenOnboarding } from "./lib/onboarding";
 import "./App.css";
 
 // App es el ORQUESTADOR: enruta entre pantallas y sostiene el estado de nivel
@@ -21,6 +23,9 @@ function App() {
   const [screen, setScreen] = useState<Screen>("candidatos");
   // Bloqueo: null = comprobando, true = bloqueada, false = abierta.
   const [locked, setLocked] = useState<boolean | null>(null);
+  // Onboarding: se lee de localStorage al arrancar (init perezoso, sin efecto),
+  // y solo se muestra una vez tras desbloquear.
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
 
   // ready=false mientras se comprueba el bloqueo O mientras está bloqueada:
   // useCandidates no debe tocar la BD hasta que sepamos que se puede abrir.
@@ -40,6 +45,20 @@ function App() {
   // Bloqueo: mientras comprobamos no pintamos nada; si está bloqueada, el candado.
   if (locked === null) return null;
   if (locked) return <LockScreen onUnlock={() => setLocked(false)} />;
+
+  // Primer arranque: el onboarding va DESPUÉS de desbloquear (si no, se vería
+  // antes que la contraseña). Al terminar, lleva a Importar, que es el paso
+  // natural siguiente.
+  if (showOnboarding) {
+    return (
+      <Onboarding
+        onDone={() => {
+          setShowOnboarding(false);
+          setScreen("importar");
+        }}
+      />
+    );
+  }
 
   return (
     <AppShell active={screen} onNavigate={setScreen}>

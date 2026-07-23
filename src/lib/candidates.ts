@@ -51,7 +51,6 @@ const RELATED_TABLES = [
   "candidate_tags",
   "candidate_vacancy",
   "candidate_chunks",
-  "candidate_vectors",
   "feedback",
 ] as const;
 
@@ -138,7 +137,6 @@ export async function anonymizeCandidate(id: number): Promise<void> {
   // el candidato quedaría medio anonimizado — ni borrado ni intacto.
   await transaction([
     ["DELETE FROM candidate_chunks WHERE candidate_id = $1", [id]],
-    ["DELETE FROM candidate_vectors WHERE candidate_id = $1", [id]],
     [
       `UPDATE candidates
           SET full_name = '[anonimizado]', email = NULL, phone = NULL,

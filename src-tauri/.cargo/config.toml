@@ -1,0 +1,7 @@
+# Silencia los avisos LNK4099 del enlazador de MSVC: las librerías estáticas
+# de OpenSSL (que trae SQLCipher) no llevan símbolos .pdb, y sin esto el
+# enlazador imprime docenas de avisos idénticos en cada compilación. Son
+# inofensivos (solo afectan a la depuración a nivel de símbolo, no al
+# funcionamiento), así que se silencian en vez de dejarlos inundar la terminal.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/ignore:4099"]

@@ -34,6 +34,24 @@ struct KeyState {
     key: Mutex<Option<[u8; 32]>>,
 }
 
+// Fija (o borra con `None`) la clave de sesión, BORRANDO antes de la memoria la
+// anterior con `zeroize`. Así, al bloquear o quitar la contraseña, los 32 bytes
+// no quedan en RAM esperando a un volcado de memoria.
+//
+// Alcance honesto: esto borra la copia LARGA que vive en `KeyState` mientras la
+// app está desbloqueada. `[u8; 32]` es `Copy`, así que copias transitorias en
+// pila (o la que guarda el plugin SQL para el PRAGMA) no se rastrean aquí; una
+// solución total exigiría cambiar el tipo de la clave por un envoltorio no-Copy
+// en toda la cadena (refactor mayor). Ver S2 en PENDIENTES.
+fn store_key(state: &KeyState, new: Option<[u8; 32]>) {
+    use zeroize::Zeroize;
+    let mut guard = state.key.lock().unwrap();
+    if let Some(old) = guard.as_mut() {
+        old.zeroize();
+    }
+    *guard = new;
+}
+
 // Cabecera que marca un archivo como cifrado por Zalent.
 const MAGIC: &[u8; 5] = b"ZENC1";
 
@@ -97,7 +115,14 @@ fn save_cv(
 ) -> Result<String, String> {
     let dir = cvs_dir(&app)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(&file_name);
+    // Nunca confiar en el nombre que llega de la interfaz: nos quedamos SOLO
+    // con el componente final del nombre (sin carpetas ni `..`), para que un
+    // nombre malicioso como `..\..\algo` no pueda escribir fuera de la carpeta
+    // de CVs. `Path::file_name()` devuelve None para "." o "..".
+    let safe_name = std::path::Path::new(&file_name)
+        .file_name()
+        .ok_or("nombre de archivo inválido")?;
+    let path = dir.join(safe_name);
     let bytes = match state.key.lock().unwrap().as_ref() {
         Some(key) => encrypt_bytes(key, &data)?,
         None => data,
@@ -149,15 +174,34 @@ fn data_dir_size(app: tauri::AppHandle) -> Result<u64, String> {
 // Devuelve una ruta ABIERTA por el SO: si el archivo está cifrado, lo descifra
 // a una copia temporal y devuelve esa; si no, devuelve la ruta original.
 #[tauri::command]
-fn read_cv_temp(state: State<KeyState>, path: String) -> Result<String, String> {
+fn read_cv_temp(
+    app: tauri::AppHandle,
+    state: State<KeyState>,
+    path: String,
+) -> Result<String, String> {
+    // Solo se pueden abrir CVs que vivan DENTRO de la carpeta de datos de la app
+    // (donde `save_cv` los guarda). Así una ruta arbitraria del exterior no se
+    // puede leer ni volcar a temporal. Se compara la forma canónica de ambas.
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let path = std::path::Path::new(&path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !path.starts_with(&base) {
+        return Err("ruta fuera de la carpeta de datos".into());
+    }
     let data = fs::read(&path).map_err(|e| e.to_string())?;
     if !is_encrypted(&data) {
-        return Ok(path);
+        return Ok(path.to_string_lossy().to_string());
     }
     let guard = state.key.lock().unwrap();
     let key = guard.as_ref().ok_or("app bloqueada")?;
     let plain = decrypt_bytes(key, &data)?;
-    let name = std::path::Path::new(&path)
+    let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "cv".into());
@@ -262,7 +306,7 @@ fn set_master_password(
     )
     .map_err(|e| e.to_string())?;
     // Dejamos la clave lista en memoria para poder cifrar ya.
-    *state.key.lock().unwrap() = Some(derive_key(&password, &enc_salt)?);
+    store_key(&state, Some(derive_key(&password, &enc_salt)?));
     Ok(())
 }
 
@@ -278,7 +322,7 @@ fn unlock(app: tauri::AppHandle, state: State<KeyState>, password: String) -> Re
     }
     if !vault.enc_salt.is_empty() {
         let key = derive_key(&password, &vault.enc_salt)?;
-        *state.key.lock().unwrap() = Some(key);
+        store_key(&state, Some(key));
         // Y, si la BD ya está cifrada, dejársela también al plugin SQL para
         // que pueda abrirla. El orden importa y sale bien solo?: la primera
         // consulta a la BD ocurre DESPUÉS de desbloquear (ver Diario 41), así
@@ -356,7 +400,7 @@ async fn remove_master_password(
         decrypt_all_cvs(&app, &key)?;
     }
     let _ = fs::remove_file(vault_path(&app)?);
-    *state.key.lock().unwrap() = None;
+    store_key(&state, None);
     set_db_key(&app, None); // que no quede colgando en el plugin SQL
     Ok(true)
 }
@@ -1775,6 +1819,16 @@ pub fn run() {
             CREATE INDEX idx_chunks_candidate ON candidate_chunks(candidate_id);
             CREATE INDEX idx_chunks_model     ON candidate_chunks(model);
         ",
+        kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 11,
+        description: "drop_dead_candidate_vectors",
+        // `candidate_vectors` era el índice de la búsqueda v1 (un vector por
+        // candidato). Desde que existe `candidate_chunks` (v4) esta tabla no se
+        // lee ni se escribe nunca — solo se borraba de ella al eliminar un
+        // candidato. Se elimina. `IF EXISTS` por robustez. Ver Diario 56 / A2.
+        sql: "DROP TABLE IF EXISTS candidate_vectors;",
         kind: MigrationKind::Up,
     }];
 

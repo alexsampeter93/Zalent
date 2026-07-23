@@ -9,6 +9,9 @@ interface EmptyStateProps {
   // Alternativa animada: frames en /olaz/frames/<name>-NN.png. Si se pasa,
   // manda sobre `image`.
   sprite?: { name: string; frames: number; fps?: number; sequence?: number[] };
+  // Variante "peek": Olaz asomándose (imagen fija en /olaz/frames/<peek>.png).
+  // Entra deslizándose y se balancea por CSS. Manda sobre `sprite` e `image`.
+  peek?: string;
   title: string;
   subtitle?: string;
   action?: { label: string; onClick: () => void };
@@ -17,13 +20,18 @@ interface EmptyStateProps {
 export function EmptyState({
   image = "coco-waving-cv",
   sprite,
+  peek,
   title,
   subtitle,
   action,
 }: EmptyStateProps) {
   return (
     <div className="empty-state">
-      {sprite ? (
+      {peek ? (
+        <span className="empty-state__peek">
+          <img src={`/olaz/frames/${peek}.png`} alt="" aria-hidden="true" />
+        </span>
+      ) : sprite ? (
         <OlazSprite
           name={sprite.name}
           frames={sprite.frames}

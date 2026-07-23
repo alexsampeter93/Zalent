@@ -70,10 +70,16 @@
   width: auto;
   filter: drop-shadow(0 0 20px rgba(255, 214, 140, 0.55));
   transform-origin: bottom center;
-  /* Sin "flotado": el Olaz del menú ya tiene sus propias animaciones por
-     frames (parpadeo, saludo, gafas). El respirar por CSS encima se sumaba
-     al movimiento y lo enturbiaba. El flotado se reutiliza en la pantalla
-     de contraseña (.lock__olaz), donde Olaz sí está quieto esperando. */
+  /* Respira y da un saltito juguetón. Ahora el menú SOLO parpadea (una hoja),
+     así que la respiración por CSS ya no se pisa con gestos de otras hojas
+     (que además "inflaban" el coco). El parpadeo y el respirar conviven bien:
+     uno cambia los ojos (src), el otro transforma la imagen. */
+  animation: coco-idle 7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coco-logo {
+    animation: none;
+  }
 }
 /* Olaz "vivo": respira y da un saltito juguetón cada ciclo. */
 @keyframes coco-idle {

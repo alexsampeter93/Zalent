@@ -52,3 +52,4 @@ _zalent_assets_reserva/
 # dentro del instalador → app 100% offline desde el primer arranque.
 public/ort/
 public/models/
+public/tesseract/

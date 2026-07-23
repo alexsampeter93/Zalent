@@ -17,7 +17,7 @@ export function ImportScreen({
   classifying: boolean;
 }) {
   const {
-    fileName, extracting, extractedText, extractError, fileKey,
+    fileName, extracting, extractedText, extractError, extractWarning, fileKey,
     form, saving, saveError,
     batchRunning, batchTotal, batchDone, batchErrors, batchKey, showBatchMsg,
     importReminder,
@@ -104,8 +104,8 @@ export function ImportScreen({
             trabajando, sin necesidad de otro texto. */}
         <OlazSprite
           name="olaz-run"
-          frames={6}
-          fps={batchRunning ? 12 : 8}
+          frames={7}
+          fps={batchRunning ? 14 : 9}
           height={132}
           className="dropzone__olaz"
           alt="Olaz corriendo con los CVs"
@@ -208,6 +208,11 @@ export function ImportScreen({
       </div>
       {extracting && <p className="card__intro">Leyendo el documento…</p>}
       {extractError && <p className="db-error">Error: {extractError}</p>}
+      {extractWarning && (
+        <div className="confirm-delete confirm-anon">
+          <p className="confirm-delete__text">⚠️ {extractWarning}</p>
+        </div>
+      )}
 
       {extractedText && (
         <section className="card">

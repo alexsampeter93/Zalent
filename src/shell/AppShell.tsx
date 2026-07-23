@@ -2,24 +2,24 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import "./shell.css";
 import { useThemeMode, resolvedTheme } from "../lib/theme";
 
-// El Olaz del menú va rotando sus animaciones EN ORDEN — parpadeo, saludo,
-// gafas — y cada una se reproduce UNA vez, limpia, ida y vuelta al reposo.
-// Entre una y otra hay una pausa corta en la pose de reposo (frame 1).
+// El Olaz del menú SOLO parpadea (una animación de UNA sola hoja), y respira
+// con una animación CSS suave (coco-idle) encima.
+//
+// Antes rotaba parpadeo → saludo → gafas, pero cada gesto es una HOJA generada
+// distinta, y la IA dibujó a Olaz con proporciones distintas en cada una (el
+// coco es más grande en la del saludo — se ve midiéndolo). Al cruzar de una
+// hoja a otra, el coco "se infla" y el marrón cambia. No es un bug arreglable:
+// no puedes hacer consistentes tres dibujos que de origen no lo son. El
+// parpadeo funciona porque son 3 frames de la MISMA hoja (solo cambian los
+// ojos) → sin inflado ni cambio de color. Ver Diario, entrada 54.
 //
 // Todo se dibuja con UN SOLO <img> cuyo `src` va cambiando entre frames ya
-// precargados. Antes se alternaba entre un <img> del avatar y un componente
-// aparte: cada cambio de elemento provocaba un "destello negro" (el navegador
-// recargaba la imagen y por un instante se veía el fondo oscuro). Con un solo
-// elemento y todo precargado, no hay recarga: no hay destello.
+// precargados (un solo elemento evita el "destello negro" al recargar).
 type MenuAnim = { name: string; frames: number; seq: number[]; fps: number };
 
 const MENU_ANIMS: MenuAnim[] = [
   // parpadeo: abre-medio-cierra-medio-abre, una vez
   { name: "olaz-blink", frames: 3, seq: [1, 2, 3, 2, 1], fps: 12 },
-  // saludo: sube el brazo, saluda, lo baja. Pausado para que se lea con calma.
-  { name: "olaz-wave", frames: 4, seq: [1, 2, 3, 4, 3, 4, 2, 1], fps: 7 },
-  // gafas: se resbalan, sube el dedo, las recoloca
-  { name: "olaz-glasses", frames: 4, seq: [1, 2, 3, 4, 1], fps: 8 },
 ];
 
 // Pausa en reposo entre una animación y la siguiente (ms).

@@ -47,6 +47,10 @@ export async function matchOffer(
   // y calcula la afinidad con tus votos. Aquí solo llegan textos y números.
   const scoring = await scoreAgainst(q, norm);
 
+  // La cobertura de requisitos sale del texto VIVO del candidato (raw_text
+  // incluido), no del índice de fragmentos: ese índice es un caché derivado y
+  // puede quedar desfasado/recortado, y entonces un requisito que SÍ está en el
+  // CV no se marcaría como cumplido. Correción > ahorro. Ver Diario 55/59.
   const cands = await db.select<
     {
       id: number;
@@ -75,7 +79,7 @@ export async function matchOffer(
     const cos = semBest?.cos ?? 0;
     const calibSem = Math.min(1, Math.max(0, (cos - SEM_FLOOR) / (SEM_TOP - SEM_FLOOR)));
 
-    // Léxica: un requisito se cumple si aparece (como texto) en el CV.
+    // Léxica: un requisito se cumple si aparece (como texto) en el CV vivo.
     const candText = norm(
       [c.full_name, c.headline, c.education, c.raw_text].filter(Boolean).join(" "),
     );

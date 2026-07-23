@@ -177,7 +177,6 @@ describe("deleteCandidate (derecho al olvido)", () => {
     "candidate_tags",
     "candidate_vacancy",
     "candidate_chunks",
-    "candidate_vectors",
     "feedback",
   ];
 
@@ -224,9 +223,8 @@ describe("anonymizeCandidate", () => {
     await anonymizeCandidate(9);
 
     expect(deleteCvFile).toHaveBeenCalledWith("/cvs/ana.pdf");
-    // El texto y los vectores contienen el nombre: tienen que irse.
+    // El texto (los fragmentos) contiene el nombre: tiene que irse.
     expect(ran("DELETE FROM candidate_chunks")).toBe(true);
-    expect(ran("DELETE FROM candidate_vectors")).toBe(true);
     // La ficha sigue existiendo (se actualiza, no se borra).
     expect(ran("UPDATE candidates", "raw_text = NULL")).toBe(true);
     expect(ran("DELETE FROM candidates WHERE")).toBe(false);

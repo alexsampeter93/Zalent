@@ -79,7 +79,56 @@ async function fetchModel() {
   }
 }
 
+// --- 3) OCR (tesseract.js) para PDFs escaneados ---
+// El motor (worker + core wasm) se COPIA de node_modules; los datos de idioma
+// (spa/eng) se DESCARGAN una vez. Todo a public/tesseract/ para que el OCR
+// funcione 100% offline bajo la CSP (igual que MiniLM). Ver Diario 60 / A3.
+const TESS_DST = join(root, "public", "tesseract");
+const TESS_CORE_SRC = join(root, "node_modules", "tesseract.js-core");
+const TESS_WORKER_SRC = join(root, "node_modules", "tesseract.js", "dist", "worker.min.js");
+// Variantes del core que tesseract elige según el navegador (SIMD/LSTM). Se
+// copian todas para que resuelva la que toque sin salir a la red.
+const TESS_CORE_FILES = [
+  "tesseract-core-simd-lstm.wasm",
+  "tesseract-core-simd-lstm.wasm.js",
+  "tesseract-core-simd.wasm",
+  "tesseract-core-simd.wasm.js",
+  "tesseract-core-lstm.wasm",
+  "tesseract-core-lstm.wasm.js",
+  "tesseract-core.wasm",
+  "tesseract-core.wasm.js",
+];
+const TESSDATA = "https://tessdata.projectnaptha.com/4.0.0";
+const TESS_LANGS = ["spa", "eng"];
+
+function copyTesseractEngine() {
+  mkdirSync(TESS_DST, { recursive: true });
+  copyFileSync(TESS_WORKER_SRC, join(TESS_DST, "worker.min.js"));
+  console.log("  copiado: tesseract/worker.min.js");
+  for (const f of TESS_CORE_FILES) {
+    const src = join(TESS_CORE_SRC, f);
+    if (!existsSync(src)) continue; // no todas las variantes existen en toda versión
+    copyFileSync(src, join(TESS_DST, f));
+    console.log(`  copiado: tesseract/${f}`);
+  }
+}
+
+async function fetchTessdata() {
+  for (const lang of TESS_LANGS) {
+    const dst = join(TESS_DST, `${lang}.traineddata.gz`);
+    if (existsSync(dst) && statSync(dst).size > 0) {
+      console.log(`  ya está: tesseract/${lang}.traineddata.gz`);
+      continue;
+    }
+    process.stdout.write(`  bajando: tesseract/${lang}.traineddata.gz ... `);
+    await download(`${TESSDATA}/${lang}.traineddata.gz`, dst);
+    console.log("ok");
+  }
+}
+
 console.log("Assets de IA del frontend:");
 copyWasm();
 await fetchModel();
-console.log("Listo. La app puede correr offline (modelo + WASM en public/).");
+copyTesseractEngine();
+await fetchTessdata();
+console.log("Listo. La app puede correr offline (modelo + WASM + OCR en public/).");

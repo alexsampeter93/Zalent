@@ -72,7 +72,7 @@ export function CandidatesScreen({
           ]}
           alt=""
         />
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -524,6 +524,7 @@ export function CandidatesScreen({
                         }
                         onClick={() => onVote(1)}
                         title="Me encaja (subirá perfiles parecidos)"
+                        aria-label="Me encaja este perfil"
                       >
                         👍
                       </button>
@@ -534,6 +535,7 @@ export function CandidatesScreen({
                         }
                         onClick={() => onVote(-1)}
                         title="No me encaja (bajará perfiles parecidos)"
+                        aria-label="No me encaja este perfil"
                       >
                         👎
                       </button>

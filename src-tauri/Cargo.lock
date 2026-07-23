@@ -6030,6 +6030,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-shell",
  "tauri-plugin-sql",
+ "zeroize",
 ]
 
 [[package]]
