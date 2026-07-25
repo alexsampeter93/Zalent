@@ -2,6 +2,7 @@ import mammoth from "mammoth/mammoth.browser";
 import JSZip from "jszip";
 import { extractPdfText } from "./pdf";
 import { assessExtraction } from "./extract-quality";
+import { reportError } from "./errors";
 
 // Texto de los CUADROS DE TEXTO de un .docx. mammoth solo lee el cuerpo normal
 // y se deja fuera los cuadros de texto (muy usados en plantillas de CV con
@@ -42,18 +43,19 @@ export async function extractText(file: File): Promise<string> {
 
   if (name.endsWith(".pdf") || file.type === "application/pdf") {
     const text = await extractPdfText(file);
-    // Si el PDF apenas dio texto, casi seguro es un ESCANEADO (una imagen sin
-    // texto seleccionable). Ahí tiramos de OCR como último recurso. Se carga
-    // tesseract solo en ese momento (import dinámico), para no meter su peso en
-    // el arranque de la app cuando no hace falta. Ver A3 / Diario 60.
-    if (assessExtraction(text).issue === "empty") {
+    // Si el PDF se leyó mal (casi sin texto o fragmentado), casi seguro es un
+    // ESCANEADO (una imagen sin texto seleccionable). Ahí tiramos de OCR como
+    // último recurso. Se carga tesseract solo en ese momento (import dinámico),
+    // para no meter su peso en el arranque cuando no hace falta. Ver A3 / Diario 60.
+    if (!assessExtraction(text).ok) {
       try {
         const { ocrPdf } = await import("./ocr");
         const ocrText = await ocrPdf(file);
         if (ocrText.trim().length > text.trim().length) return ocrText;
       } catch (e) {
-        // Si el OCR falla, no rompemos la importación: devolvemos lo que había.
-        console.error("OCR falló:", e);
+        // El OCR falló: no rompemos la importación (devolvemos lo que había),
+        // pero lo AVISAMOS en pantalla en vez de tragarlo, para poder verlo.
+        reportError("El OCR del PDF escaneado falló", e);
       }
     }
     return text;

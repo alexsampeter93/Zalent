@@ -4,20 +4,20 @@ import Database from "@tauri-apps/plugin-sql";
 // La primera vez que se carga, el plugin aplica las migraciones definidas en
 // Rust (src-tauri/src/lib.rs), es decir: crea las tablas si no existen.
 //
-// En DESARROLLO usa un fichero DISTINTO (`zalent-dev.db`). Motivo: la app de dev
-// y la instalada comparten carpeta de datos (mismo identificador), así que si
-// ambas usaran el mismo fichero, una migración nueva probada en dev "sube" el
-// esquema de la BD y la app instalada (más antigua) ya no puede abrirla
-// ("migration N previously applied but missing"). Con ficheros separados,
-// probar en dev nunca toca tus datos de verdad. `import.meta.env.DEV` lo da
-// Vite: true al servir en desarrollo, false en el build instalado. Ver B / Diario 61.
+// NOTA (footgun conocido): la app de dev y la instalada comparten carpeta de
+// datos (mismo identificador), así que comparten esta MISMA `zalent.db`. Se
+// probó separarlas (un `zalent-dev.db` solo para dev), pero (a) las migraciones
+// están registradas para "sqlite:zalent.db", así que el fichero de dev quedaba
+// SIN tablas, y (b) el usuario prefiere que ambas apps vean sus datos. La
+// mitigación del choque de migraciones (una migración probada en dev deja la BD
+// en una versión que la app instalada vieja no abre) NO es separar la BD, sino:
+// evitar migraciones para cambios cosméticos, y RECONSTRUIR el instalador
+// cuando el esquema cambie. Ver Diario 61.
 let dbPromise: Promise<Database> | null = null;
-
-const DB_FILE = import.meta.env.DEV ? "sqlite:zalent-dev.db" : "sqlite:zalent.db";
 
 export function getDb(): Promise<Database> {
   if (!dbPromise) {
-    dbPromise = Database.load(DB_FILE);
+    dbPromise = Database.load("sqlite:zalent.db");
   }
   return dbPromise;
 }

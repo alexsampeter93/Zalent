@@ -22,7 +22,7 @@ export function PrivacySection() {
         <div>
           <div className="set-hero__t">Datos en tu equipo</div>
           <div className="set-hero__s">
-            Cero llamadas a servidores externos. Nada va a la nube ni a Anthropic.
+            Cero llamadas a servidores externos. Nada va a la nube ni a terceros.
           </div>
         </div>
       </div>

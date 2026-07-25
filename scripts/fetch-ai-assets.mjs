@@ -10,7 +10,7 @@
 // Uso:  node scripts/fetch-ai-assets.mjs
 // (se ejecuta solo antes de build/dev vía el script "prebuild" de package.json)
 
-import { existsSync, mkdirSync, copyFileSync, createWriteStream, statSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, createWriteStream, statSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
@@ -86,18 +86,6 @@ async function fetchModel() {
 const TESS_DST = join(root, "public", "tesseract");
 const TESS_CORE_SRC = join(root, "node_modules", "tesseract.js-core");
 const TESS_WORKER_SRC = join(root, "node_modules", "tesseract.js", "dist", "worker.min.js");
-// Variantes del core que tesseract elige según el navegador (SIMD/LSTM). Se
-// copian todas para que resuelva la que toque sin salir a la red.
-const TESS_CORE_FILES = [
-  "tesseract-core-simd-lstm.wasm",
-  "tesseract-core-simd-lstm.wasm.js",
-  "tesseract-core-simd.wasm",
-  "tesseract-core-simd.wasm.js",
-  "tesseract-core-lstm.wasm",
-  "tesseract-core-lstm.wasm.js",
-  "tesseract-core.wasm",
-  "tesseract-core.wasm.js",
-];
 const TESSDATA = "https://tessdata.projectnaptha.com/4.0.0";
 const TESS_LANGS = ["spa", "eng"];
 
@@ -105,11 +93,15 @@ function copyTesseractEngine() {
   mkdirSync(TESS_DST, { recursive: true });
   copyFileSync(TESS_WORKER_SRC, join(TESS_DST, "worker.min.js"));
   console.log("  copiado: tesseract/worker.min.js");
-  for (const f of TESS_CORE_FILES) {
-    const src = join(TESS_CORE_SRC, f);
-    if (!existsSync(src)) continue; // no todas las variantes existen en toda versión
-    copyFileSync(src, join(TESS_DST, f));
-    console.log(`  copiado: tesseract/${f}`);
+  // TODAS las variantes del core (simd, relaxedsimd, lstm, base…): tesseract
+  // elige una según lo que soporte el navegador, y si falta la elegida el OCR
+  // no arranca. Copiarlas todas evita adivinar (fue el bug: faltaban las
+  // `relaxedsimd`, que es justo la que elige el WebView de Windows).
+  for (const f of readdirSync(TESS_CORE_SRC)) {
+    if (/^tesseract-core.*\.wasm(\.js)?$/.test(f)) {
+      copyFileSync(join(TESS_CORE_SRC, f), join(TESS_DST, f));
+      console.log(`  copiado: tesseract/${f}`);
+    }
   }
 }
 
