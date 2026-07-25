@@ -10,11 +10,13 @@ export function ImportScreen({
   unclassifiedCount,
   onAutoClassify,
   classifying,
+  onNavigateToSettings,
 }: {
   imp: ImportState;
   unclassifiedCount: number;
   onAutoClassify: () => void;
   classifying: boolean;
+  onNavigateToSettings: () => void;
 }) {
   const {
     fileName, extracting, extractedText, extractError, extractWarning, fileKey,
@@ -22,6 +24,7 @@ export function ImportScreen({
     batchRunning, batchTotal, batchDone, batchErrors, batchKey, showBatchMsg,
     importReminder,
     aiAvailable, useAiImport, setUseAiImport, pulling, pullPct, pullMsg,
+    hasPassword,
     dragOver, setDragOver, folderRef,
     set, downloadModel, onFileChange, onBatchChange, onDropFiles, onSave,
   } = imp;
@@ -34,6 +37,20 @@ export function ImportScreen({
           Arrastra tus CVs y se convierten en fichas. Todo local, nada sale a la nube.
         </p>
       </div>
+
+      {hasPassword === false && (
+        <div className="confirm-delete confirm-anon">
+          <p className="confirm-delete__text">
+            🔓 No tienes <strong>contraseña maestra</strong>: los CVs que
+            importes se guardarán <strong>sin cifrar</strong> en este equipo.
+            Si vas a usar CVs reales, actívala antes en{" "}
+            <strong>Ajustes → Seguridad</strong>.
+          </p>
+          <button className="btn-sm" onClick={onNavigateToSettings}>
+            Ir a Ajustes
+          </button>
+        </div>
+      )}
 
       {aiAvailable ? (
         <label className="ai-import-toggle">

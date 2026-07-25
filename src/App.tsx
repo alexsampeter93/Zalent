@@ -80,6 +80,7 @@ function App() {
           unclassifiedCount={cand.unclassifiedCount}
           onAutoClassify={cand.onAutoClassify}
           classifying={cand.classifying}
+          onNavigateToSettings={() => setScreen("ajustes")}
         />
       )}
 

@@ -4,6 +4,7 @@ import { assessExtraction } from "../../lib/extract-quality";
 import { guessFields } from "../../lib/parse";
 import { saveCandidate } from "../../lib/candidates";
 import { saveCvFile } from "../../lib/files";
+import { hasMasterPassword } from "../../lib/lock";
 import {
   ollamaExtract,
   isModelReady,
@@ -56,6 +57,10 @@ export function useImport({
   const [pullMsg, setPullMsg] = useState("");
   const [dragOver, setDragOver] = useState<null | "single" | "batch">(null);
   const folderRef = useRef<HTMLInputElement>(null);
+  // Sin contraseña maestra, ni la BD ni los CVs se cifran (S3/Diario 54 lo
+  // avisa en Privacidad; esto avisa justo ANTES de que entren datos reales,
+  // que es el momento en que de verdad importa). null = aún sin comprobar.
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
 
   // El mensaje "Importados X de Y" se muestra un momento y se desvanece.
   useEffect(() => {
@@ -68,6 +73,13 @@ export function useImport({
   useEffect(() => {
     if (!active) return;
     isModelReady().then(setAiAvailable);
+  }, [active]);
+
+  // ¿Hay contraseña maestra activa? Se re-comprueba cada vez que se entra en
+  // Importar, para que el aviso desaparezca solo en cuanto el usuario la active.
+  useEffect(() => {
+    if (!active) return;
+    hasMasterPassword().then(setHasPassword).catch(() => setHasPassword(null));
   }, [active]);
 
   // El aviso "sin clasificar" solo vive en Importar, tras importar.
@@ -311,6 +323,7 @@ export function useImport({
     batchRunning, batchTotal, batchDone, batchErrors, batchKey, showBatchMsg,
     importReminder,
     aiAvailable, useAiImport, setUseAiImport, pulling, pullPct, pullMsg,
+    hasPassword,
     dragOver, setDragOver, folderRef,
     set, downloadModel, onFileChange, onBatchChange, onDropFiles, onSave,
   };
