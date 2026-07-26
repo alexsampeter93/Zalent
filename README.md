@@ -14,9 +14,18 @@ Zalent ayuda a equipos de RRHH y agencias de selección a **importar CVs, buscar
 - 🤖 **Asistente IA local** (opcional): resumen, preguntas de entrevista y borrador de rechazo por candidato.
 - 🔒 **Local-first / RGPD**: cifrado en reposo con contraseña maestra, borrado real, todo en tu equipo.
 
+## Documentación
+
+| Documento | Para quién |
+|---|---|
+| [`docs/MANUAL.md`](docs/MANUAL.md) | **Quien usa la app.** Cómo instalarla y usarla, sin tecnicismos. Es lo que se entrega junto al instalador. |
+| [`docs/DIARIO-APRENDIZAJE.md`](docs/DIARIO-APRENDIZAJE.md) | **Quien la construye.** Crónica del proyecto (entradas 0-63) + guía técnica de cómo funciona por dentro (G1-G16). |
+| [`CLAUDE.md`](CLAUDE.md) | Manual operativo: visión, stack, principios de arquitectura y hoja de ruta. |
+| [`docs/PENDIENTES.md`](docs/PENDIENTES.md) | Lo que queda, por prioridad. |
+
 ## Estado
 
-Fases 0-7 completas (ver hoja de ruta en [`CLAUDE.md`](CLAUDE.md)). Diario técnico completo en [`docs/DIARIO-APRENDIZAJE.md`](docs/DIARIO-APRENDIZAJE.md).
+Fases 0-7 completas (ver hoja de ruta en [`CLAUDE.md`](CLAUDE.md)).
 
 ## Stack
 
