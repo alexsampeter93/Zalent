@@ -210,6 +210,7 @@ export function AppShell({
               <b>Datos en tu equipo.</b> Nada sale a la nube.
             </span>
           </div>
+          <div className="rail__brand">by CocoBrain</div>
         </div>
       </aside>
 

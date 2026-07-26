@@ -14,6 +14,7 @@ import {
 } from "../../lib/ai/ollama";
 import { type CandidateForm, emptyForm, splitList } from "../../lib/candidate-form";
 import { reportError } from "../../lib/errors";
+import { cue } from "../../lib/sound";
 
 // TODO EL ESTADO Y LA LÓGICA de la pantalla Importar, en un hook. Vive en App
 // (se llama desde App), así que su estado PERSISTE al navegar a otra pantalla y
@@ -258,6 +259,9 @@ export function useImport({
     setBatchKey((k) => k + 1);
     setShowBatchMsg(true);
     setImportReminder(true);
+    // Un lote de 200 CVs con IA tarda horas: el aviso sonoro importa de
+    // verdad aquí, porque nadie se queda mirando la barra de progreso.
+    cue(errors.length > 0 ? "failed" : "imported");
     await onImported();
   }
 

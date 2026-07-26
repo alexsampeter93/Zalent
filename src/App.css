@@ -1955,6 +1955,49 @@ mark {
   color: var(--ink);
 }
 
+/* Opciones de sonido: como las del tema, pero apiladas y con explicación —
+   "Solo lo importante" no se entiende sin decir qué entra ahí. */
+.sound-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sound-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+  box-shadow: none;
+}
+.sound-opt:hover {
+  box-shadow: none;
+  transform: none;
+  border-color: var(--gold-deep);
+}
+.sound-opt.is-on {
+  background: var(--accent-soft);
+  border-color: var(--gold-deep);
+}
+.sound-opt__label {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.sound-opt.is-on .sound-opt__label {
+  color: var(--ink);
+}
+.sound-opt__desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
 /* Almacenamiento (stats) */
 .stat-grid {
   display: flex;
@@ -2302,8 +2345,12 @@ mark {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  /* Calidez con profundidad: un halo cálido arriba que cae hacia la crema. */
-  background: radial-gradient(130% 90% at 50% 0%, var(--accent-soft), var(--cream) 55%);
+  /* El papel de la marca, igual que el splash y la pantalla de bloqueo: el
+     primer arranque se ve como una sola pieza. El degradado cálido queda
+     DEBAJO como respaldo hasta que la foto carga. */
+  background:
+    url("/olaz/FondoZalent.png") center / cover no-repeat,
+    radial-gradient(130% 90% at 50% 0%, var(--accent-soft), var(--cream) 55%);
 }
 
 .onb__card {
@@ -2312,11 +2359,47 @@ mark {
   display: flex;
   flex-direction: column;
   padding: 26px 28px 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* El tono del propio papel (medido: ~#fdf0dd en el centro) y semitransparente,
+     para que la textura del fondo se vea a través. Antes era `var(--surface)`
+     —blanco— y se leía como un recuadro pegado encima del papel. */
+  background: rgba(253, 240, 221, 0.82);
+  border: 1px solid rgba(191, 157, 111, 0.28);
   border-radius: var(--r);
-  box-shadow: var(--shadow);
+  box-shadow: 0 16px 44px rgba(43, 30, 15, 0.16);
   overflow: hidden;
+}
+
+/* En modo oscuro el papel es DEMASIADO claro: el texto del tema oscuro es
+   claro también, y sobre una tarjeta crema no se leería. Se atenúa el papel
+   con un velo y la tarjeta recupera sus tonos oscuros — el fondo sigue
+   viéndose, pero como textura tenue.
+   Se cubren los DOS caminos al tema oscuro: el elegido a mano
+   (`data-theme="dark"`) y el heredado del sistema, igual que en
+   `olaz-theme.css`. Con solo el primero, quien tenga Windows en oscuro y no
+   haya tocado el tema vería texto claro sobre tarjeta crema. */
+:root[data-theme="dark"] .onb {
+  background:
+    linear-gradient(rgba(21, 18, 13, 0.82), rgba(21, 18, 13, 0.82)),
+    url("/olaz/FondoZalent.png") center / cover no-repeat,
+    var(--cream);
+}
+:root[data-theme="dark"] .onb__card {
+  background: rgba(34, 27, 18, 0.88);
+  border-color: rgba(240, 201, 135, 0.14);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .onb {
+    background:
+      linear-gradient(rgba(21, 18, 13, 0.82), rgba(21, 18, 13, 0.82)),
+      url("/olaz/FondoZalent.png") center / cover no-repeat,
+      var(--cream);
+  }
+  :root:not([data-theme="light"]) .onb__card {
+    background: rgba(34, 27, 18, 0.88);
+    border-color: rgba(240, 201, 135, 0.14);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
 }
 
 /* --- Bocadillo: lo que Olaz "dice", escribiéndose --- */

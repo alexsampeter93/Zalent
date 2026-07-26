@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppShell, type Screen } from "./shell/AppShell";
 import { Settings } from "./screens/Settings";
 import { LockScreen } from "./screens/LockScreen";
@@ -13,6 +13,7 @@ import { CandidatesScreen } from "./screens/candidates/CandidatesScreen";
 import { ErrorToasts } from "./components/ErrorToasts";
 import { Onboarding } from "./screens/Onboarding";
 import { hasSeenOnboarding } from "./lib/onboarding";
+import { BrandSplash } from "./components/BrandSplash";
 import "./App.css";
 
 // App es el ORQUESTADOR: enruta entre pantallas y sostiene el estado de nivel
@@ -26,6 +27,9 @@ function App() {
   // Onboarding: se lee de localStorage al arrancar (init perezoso, sin efecto),
   // y solo se muestra una vez tras desbloquear.
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
+  // "CocoBrain presenta", cada arranque. Se superpone a lo que haya debajo
+  // (candado/onboarding/app) — no retrasa nada, solo lo tapa un instante.
+  const [showSplash, setShowSplash] = useState(true);
 
   // ready=false mientras se comprueba el bloqueo O mientras está bloqueada:
   // useCandidates no debe tocar la BD hasta que sepamos que se puede abrir.
@@ -43,14 +47,16 @@ function App() {
   }, []);
 
   // Bloqueo: mientras comprobamos no pintamos nada; si está bloqueada, el candado.
-  if (locked === null) return null;
-  if (locked) return <LockScreen onUnlock={() => setLocked(false)} />;
-
   // Primer arranque: el onboarding va DESPUÉS de desbloquear (si no, se vería
   // antes que la contraseña). Al terminar, lleva a Importar, que es el paso
   // natural siguiente.
-  if (showOnboarding) {
-    return (
+  let body: ReactNode;
+  if (locked === null) {
+    body = null;
+  } else if (locked) {
+    body = <LockScreen onUnlock={() => setLocked(false)} />;
+  } else if (showOnboarding) {
+    body = (
       <Onboarding
         onDone={() => {
           setShowOnboarding(false);
@@ -58,37 +64,44 @@ function App() {
         }}
       />
     );
+  } else {
+    body = (
+      <AppShell active={screen} onNavigate={setScreen}>
+        {/* Los avisos de error viven aquí, fuera de las pantallas: un fallo al
+            cargar candidatos tiene que verse aunque hayas navegado a otro sitio,
+            y así ninguna pantalla necesita saber cómo se muestra un error. */}
+        <ErrorToasts />
+
+        {screen === "candidatos" && (
+          <CandidatesScreen
+            cand={cand}
+            onNavigateToImport={() => setScreen("importar")}
+          />
+        )}
+
+        {screen === "importar" && (
+          <ImportScreen
+            imp={imp}
+            unclassifiedCount={cand.unclassifiedCount}
+            onAutoClassify={cand.onAutoClassify}
+            classifying={cand.classifying}
+            onNavigateToSettings={() => setScreen("ajustes")}
+          />
+        )}
+
+        {screen === "vacantes" && <Vacancies />}
+        {screen === "pipeline" && <Pipeline />}
+        {screen === "panel" && <Panel />}
+        {screen === "ajustes" && <Settings onWiped={cand.refreshAll} />}
+      </AppShell>
+    );
   }
 
   return (
-    <AppShell active={screen} onNavigate={setScreen}>
-      {/* Los avisos de error viven aquí, fuera de las pantallas: un fallo al
-          cargar candidatos tiene que verse aunque hayas navegado a otro sitio,
-          y así ninguna pantalla necesita saber cómo se muestra un error. */}
-      <ErrorToasts />
-
-      {screen === "candidatos" && (
-        <CandidatesScreen
-          cand={cand}
-          onNavigateToImport={() => setScreen("importar")}
-        />
-      )}
-
-      {screen === "importar" && (
-        <ImportScreen
-          imp={imp}
-          unclassifiedCount={cand.unclassifiedCount}
-          onAutoClassify={cand.onAutoClassify}
-          classifying={cand.classifying}
-          onNavigateToSettings={() => setScreen("ajustes")}
-        />
-      )}
-
-      {screen === "vacantes" && <Vacancies />}
-      {screen === "pipeline" && <Pipeline />}
-      {screen === "panel" && <Panel />}
-      {screen === "ajustes" && <Settings onWiped={cand.refreshAll} />}
-    </AppShell>
+    <>
+      {showSplash && <BrandSplash onDone={() => setShowSplash(false)} />}
+      {body}
+    </>
   );
 }
 

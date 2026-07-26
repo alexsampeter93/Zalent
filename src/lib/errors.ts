@@ -16,6 +16,8 @@
 // de un error sin ser un componente ni recibir props (`candidates.ts` no sabe
 // que React existe, y así sigue siendo).
 
+import { cue } from "./sound";
+
 export interface AppError {
   id: number;
   // Qué estaba intentando hacer la app, contado al usuario.
@@ -56,6 +58,10 @@ export function reportError(message: string, err: unknown): void {
   // diez avisos idénticos encima del usuario.
   if (errors.some((e) => e.message === message && e.detail === detail)) return;
   errors = [...errors, { id: nextId++, message, detail }];
+  // Aquí pasan TODOS los errores visibles de la app: es el único sitio donde
+  // hace falta el aviso sonoro. Va después del filtro de repetidos, para que
+  // un fallo que se reintenta no suene diez veces.
+  cue("failed");
   emit();
 }
 

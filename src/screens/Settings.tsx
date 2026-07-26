@@ -4,6 +4,7 @@ import { SecuritySection } from "./settings/SecuritySection";
 import { SearchAiSection } from "./settings/SearchAiSection";
 import { DataSection } from "./settings/DataSection";
 import { AppearanceSection } from "./settings/AppearanceSection";
+import { SoundSection } from "./settings/SoundSection";
 import { AboutSection } from "./settings/AboutSection";
 
 // Ajustes = un menú lateral de secciones + el panel de la sección activa. Cada
@@ -11,6 +12,7 @@ import { AboutSection } from "./settings/AboutSection";
 // App.tsx: aquí solo queda la navegación. Ver Diario 57 / M1.
 type Section =
   | "apariencia"
+  | "sonido"
   | "privacidad"
   | "seguridad"
   | "datos"
@@ -49,6 +51,12 @@ const ICONS: Record<Section, ReactNode> = {
       <path d="m21 21-4.3-4.3" />
     </svg>
   ),
+  sonido: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H3v6h3l5 4V5z" />
+      <path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12" />
+    </svg>
+  ),
   acerca: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="9" />
@@ -63,6 +71,7 @@ const SECTIONS: { key: Section; title: string; desc: string }[] = [
   { key: "busqueda", title: "Búsqueda e IA", desc: "Índice de búsqueda y preferencias aprendidas." },
   { key: "datos", title: "Datos", desc: "Almacenamiento y borrado total (derecho al olvido)." },
   { key: "apariencia", title: "Apariencia", desc: "Tema claro, oscuro o el del sistema." },
+  { key: "sonido", title: "Sonido", desc: "Avisos sonoros de la interfaz (apagados de fábrica)." },
   { key: "acerca", title: "Acerca de", desc: "Versión, marca y créditos." },
 ];
 
@@ -101,6 +110,7 @@ export function Settings({ onWiped }: { onWiped: () => void }) {
             {section === "busqueda" && <SearchAiSection />}
             {section === "datos" && <DataSection onWiped={onWiped} />}
             {section === "apariencia" && <AppearanceSection />}
+            {section === "sonido" && <SoundSection />}
             {section === "acerca" && <AboutSection />}
           </div>
         </div>

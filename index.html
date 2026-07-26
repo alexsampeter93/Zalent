@@ -8,7 +8,19 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <!-- Telón previo: entre que se abre la ventana y React pinta el splash hay
+         unos fotogramas en los que, sin esto, se vería el fondo en blanco.
+         Lleva el MISMO degradado que `BrandSplash`, así que el relevo es
+         invisible. React lo borra al renderizar dentro de #root. -->
+    <div id="root">
+      <div
+        style="
+          position: fixed;
+          inset: 0;
+          background: linear-gradient(215deg, #fdebd6 0%, #f8dab8 48%, #efcca8 100%);
+        "
+      ></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

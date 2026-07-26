@@ -1,0 +1,148 @@
+/* Cartón de estudio: "CocoBrain presenta", sobre el papel de la marca.
+   La imagen del logo trae su propio fondo crema; para que no se vea su
+   RECUADRO recortado sobre el papel, se enmascara en óvalo y se desvanece.
+   Medido sobre el fichero: el contenido ocupa el 66,4% del ancho y el 77,1%
+   del alto, centrado — de ahí los radios de `--splash-mask`, que dejan el
+   logo entero opaco y funden solo el crema sobrante. */
+.brand-splash {
+  --splash-mask: radial-gradient(
+    ellipse 42% 48% at 50% 50%,
+    #000 82%,
+    transparent 100%
+  );
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* El papel de la marca. El degradado va DEBAJO como color de respaldo: se
+     pinta al instante y la foto entra encima cuando carga, así el telón nunca
+     está en blanco ni un fotograma. */
+  background:
+    url("/olaz/FondoZalent.png") center / cover no-repeat,
+    linear-gradient(215deg, #fdebd6 0%, #f8dab8 48%, #efcca8 100%);
+  /* OPACO DESDE EL PRIMER FOTOGRAMA. Antes empezaba en 0 y se desvanecía a 1
+     cuando la imagen estaba lista: durante esa espera el telón era
+     transparente y se colaba un destello de lo que hay debajo (el candado).
+     Un telón que deja ver el escenario no es un telón. Lo que aparece
+     gradualmente es el LOGO (`__stage`), nunca el fondo. */
+  opacity: 1;
+}
+
+.brand-splash__stage {
+  position: relative;
+  width: min(560px, 74vw);
+  opacity: 0;
+  transform: scale(0.86);
+  will-change: transform, opacity;
+}
+
+.brand-splash__stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  -webkit-mask-image: var(--splash-mask);
+  mask-image: var(--splash-mask);
+}
+
+/* Resplandor cálido que se expande por detrás del logo. */
+.brand-splash__halo {
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(255, 244, 226, 0.9) 0%,
+    rgba(226, 178, 128, 0.35) 42%,
+    transparent 70%
+  );
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Barrido de luz sobre el relieve del logo (le da el aire "metálico"). */
+.brand-splash__sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 62%
+  );
+  -webkit-mask-image: var(--splash-mask);
+  mask-image: var(--splash-mask);
+}
+
+/* ---------- Entrada ---------- */
+/* El telón NO se anima al entrar (ya está opaco): solo entra el logo. */
+.brand-splash--in .brand-splash__stage {
+  /* Curva "expo out": entra con energía y se asienta sin rebotar. */
+  animation: splash-stage-in 1.05s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.brand-splash--in .brand-splash__halo {
+  animation: splash-halo 1.7s ease-out 0.1s forwards;
+}
+.brand-splash--in .brand-splash__sheen {
+  animation: splash-sheen 1s ease-in-out 0.55s forwards;
+}
+
+/* ---------- Salida ---------- */
+.brand-splash--out {
+  opacity: 1;
+  /* Durante el fundido ya no debe interceptar clics: lo que hay debajo (el
+     candado, por ejemplo) tiene que poder recibir el teclado y el ratón. */
+  pointer-events: none;
+  animation: splash-veil-out 0.52s ease-in forwards;
+}
+.brand-splash--out .brand-splash__stage {
+  opacity: 1;
+  animation: splash-stage-out 0.52s ease-in forwards;
+}
+
+@keyframes splash-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes splash-veil-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes splash-stage-in {
+  from { opacity: 0; transform: scale(0.86); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes splash-stage-out {
+  from { transform: scale(1); }
+  to { transform: scale(1.06); }
+}
+@keyframes splash-halo {
+  0% { opacity: 0; transform: scale(0.65); }
+  35% { opacity: 0.75; }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+@keyframes splash-sheen {
+  from { opacity: 0.9; transform: translateX(-115%); }
+  to { opacity: 0; transform: translateX(115%); }
+}
+
+/* Con "reducir movimiento": solo aparece y desaparece, sin recorridos. */
+@media (prefers-reduced-motion: reduce) {
+  .brand-splash--out {
+    animation-duration: 0.2s;
+  }
+  .brand-splash--in .brand-splash__stage {
+    animation: splash-fade-in 0.2s ease-out forwards;
+    transform: none;
+  }
+  .brand-splash--in .brand-splash__halo,
+  .brand-splash--in .brand-splash__sheen,
+  .brand-splash--out .brand-splash__stage {
+    animation: none;
+  }
+}
