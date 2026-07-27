@@ -1,0 +1,60 @@
+Copyright (c) 2026 Alejandro Sampedro Calo (CocoBrain)
+
+Todos los derechos reservados. / All rights reserved.
+
+---
+
+ESPAÑOL
+
+Este repositorio se publica con un único fin: que su código pueda ser
+CONSULTADO Y EVALUADO (por ejemplo, como parte de un portfolio profesional).
+
+Queda permitido:
+
+  - Leer el código.
+  - Estudiarlo con fines educativos o de evaluación.
+  - Citar fragmentos breves, indicando la fuente.
+
+NO se concede permiso para:
+
+  - Copiar, reproducir o redistribuir el código, total o parcialmente.
+  - Modificarlo o crear obras derivadas.
+  - Usarlo con fines comerciales.
+  - Incorporarlo a otros proyectos, sean o no comerciales.
+
+Para cualquier uso no contemplado aquí, hace falta autorización expresa
+y por escrito del titular.
+
+Este proyecto incorpora software de terceros (Tauri, React, SQLite,
+SQLCipher, transformers.js, tesseract.js, Ollama y otros), cada uno bajo
+su propia licencia. Esta licencia se aplica únicamente al código original
+de Zalent, no a esas dependencias.
+
+---
+
+ENGLISH
+
+This repository is published for one purpose only: so that its source
+code can be READ AND EVALUATED (for example, as part of a professional
+portfolio).
+
+You are permitted to:
+
+  - Read the source code.
+  - Study it for educational or evaluation purposes.
+  - Quote short excerpts, with attribution.
+
+You are NOT granted permission to:
+
+  - Copy, reproduce or redistribute the code, in whole or in part.
+  - Modify it or create derivative works.
+  - Use it for commercial purposes.
+  - Incorporate it into other projects, commercial or otherwise.
+
+Any use not covered above requires express written permission from the
+copyright holder.
+
+This project bundles third-party software (Tauri, React, SQLite,
+SQLCipher, transformers.js, tesseract.js, Ollama and others), each under
+its own licence. This licence applies solely to Zalent's original code,
+not to those dependencies.

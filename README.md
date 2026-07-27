@@ -124,6 +124,12 @@ npm run tauri build    # instalador
 npm test               # 174 tests
 ```
 
+## Licencia
+
+Código **visible para consulta y evaluación**, todos los derechos reservados
+([`LICENSE`](LICENSE)). Es decir: puedes leerlo y estudiarlo, pero no copiarlo
+ni reutilizarlo. Si te interesa algo de aquí para tu proyecto, escríbeme.
+
 ---
 
 <div align="center">
