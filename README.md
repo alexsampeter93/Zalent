@@ -75,6 +75,48 @@ falta ninguna fila → y solo entonces reemplazar.
 
 ## Arquitectura
 
+```mermaid
+flowchart TB
+    subgraph webview["🖥️ Interfaz — React + TypeScript"]
+        UI["Pantallas<br/><i>hook (lógica) + componente (vista)</i>"]
+        CORE["Núcleo de negocio<br/><code>lib/</code> — sin saber de React"]
+        AI["Módulo de IA<br/><code>lib/ai/</code>"]
+        UI --> CORE
+        CORE --> AI
+    end
+
+    subgraph native["⚙️ Nativo — Rust (Tauri v2)"]
+        CMD["Comandos invocables"]
+        CRYPTO["Cifrado<br/>Argon2 · AES-GCM"]
+        LIFE["Ciclo de vida<br/>del sidecar"]
+        CMD --> CRYPTO
+        CMD --> LIFE
+    end
+
+    DB[("SQLite + SQLCipher<br/><i>única fuente de verdad</i>")]
+    FILES["Archivos de CV<br/><i>cifrados en reposo</i>"]
+    EMB["MiniLM · embeddings<br/><i>empotrado, offline</i>"]
+    LLM["Ollama + Qwen2.5 7B<br/><i>sidecar local, opt-in</i>"]
+
+    CORE -->|invoke| CMD
+    AI -->|invoke| CMD
+    AI --> EMB
+    CMD --> DB
+    CRYPTO --> FILES
+    LIFE --> LLM
+
+    NUBE(["☁️ Internet"])
+    native -. "❌ nada sale del equipo" .-> NUBE
+
+    style webview fill:#fdf0dd,stroke:#b8862f,color:#241c14
+    style native fill:#f4e7c8,stroke:#b8862f,color:#241c14
+    style NUBE fill:#f9ece8,stroke:#b4432f,color:#8a2e1f
+    style DB fill:#fffdf9,stroke:#6f6353,color:#241c14
+```
+
+El único proceso que Zalent no controla es el **sidecar de Ollama**, y aun así
+lo arranca y lo cierra Rust: el usuario nunca lo ve ni tiene que instalarlo.
+
 ```
 src/                  La cara — React + TypeScript
 ├─ lib/               Núcleo de negocio, sin saber de React
