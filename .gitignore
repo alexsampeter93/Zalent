@@ -6,6 +6,11 @@ dist/
 dist-ssr/
 *.local
 
+# Documentos maquetados para imprimir a PDF: se regeneran con `npm run docs`
+# a partir de los .md, que son la fuente de verdad. Versionarlos duplicaría
+# el contenido y garantizaría que un día se queden desfasados.
+docs/pdf/
+
 # Tauri (Rust) — artefactos de compilación
 src-tauri/target/
 
