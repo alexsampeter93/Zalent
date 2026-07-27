@@ -1,36 +1,133 @@
+<div align="center">
+
+<img src="public/olaz/zalent-app-icon.png" width="120" alt="Zalent">
+
 # Zalent
 
-**Gestor de CVs y talento local-first con IA.** De escritorio, privado por diseño, para cualquier tipo de empresa.
+**Gestor de CVs y talento con IA que funciona entero en tu ordenador.**
 
-Zalent ayuda a equipos de RRHH y agencias de selección a **importar CVs, buscarlos por significado y encontrar al mejor candidato para cada oferta** — todo funcionando en local, sin coste y sin que los datos salgan del equipo.
+Búsqueda semántica, lectura automática de currículums y matching contra ofertas —
+sin servidores, sin suscripción y sin que los datos salgan del equipo.
 
-## Características
+<!-- TODO(portfolio): sustituir por capturas reales. Ver docs/PORTFOLIO.md -->
+<!-- ![Zalent](docs/img/captura-candidatos.png) -->
 
-- 📥 **Importación masiva** de CVs (PDF, Word, escaneados con OCR) → fichas estructuradas.
-- 🔎 **Búsqueda semántica** en lenguaje natural, con evidencia resaltada.
-- 🎯 **Matching CV↔oferta**: pega una vacante y obtén candidatos rankeados, con encaje y huecos explicados.
-- 🗂️ **Pipeline** tipo kanban por vacante + notas con historial.
-- 🧠 **Aprende** de tus preferencias con feedback 👍/👎.
-- 🤖 **Asistente IA local** (opcional): resumen, preguntas de entrevista y borrador de rechazo por candidato.
-- 🔒 **Local-first / RGPD**: cifrado en reposo con contraseña maestra, borrado real, todo en tu equipo.
+Tauri v2 · React · TypeScript · Rust · SQLite (SQLCipher) · transformers.js · Ollama
+
+</div>
+
+---
+
+## El problema
+
+Una PYME que contrata recibe cientos de currículums y acaba gestionándolos en
+una carpeta compartida. Los ATS que resuelven esto (Greenhouse, Lever, Workable)
+son caros, están sobredimensionados y —lo más importante— **exigen subir datos
+personales de terceros a la nube de otra empresa**, con todo lo que eso implica
+bajo el RGPD.
+
+Zalent hace lo mismo que ellos en lo esencial, pero **local-first**: los CVs
+nunca salen del ordenador.
+
+## Qué hace
+
+- **Lee los CVs solo.** Arrastras 200 archivos y salen fichas estructuradas
+  (nombre, contacto, experiencia, estudios, idiomas). PDF, Word, y **PDFs
+  escaneados vía OCR**.
+- **Busca por significado, no por palabras.** Escribes *"gente con trato al
+  público y algo de inglés"* y encuentra a quien puso *"atención al cliente"* —
+  con el fragmento del CV resaltado como evidencia.
+- **Puntúa contra una oferta.** Pegas una vacante y ordena a toda la base
+  explicando el encaje y los huecos.
+- **Pipeline por oferta**, notas con historial y etiquetas libres.
+- **Aprende de ti**: los 👍/👎 reordenan los resultados hacia tu criterio.
+- **Cifrado real en reposo** y herramientas de RGPD (borrado efectivo,
+  anonimizado, exportación).
+
+## Lo interesante por dentro
+
+Tres problemas que costaron de verdad y cómo se resolvieron:
+
+**1. Un LLM que no cabía en el navegador.**
+La extracción por reglas tiene techo (puesto, estudios y habilidades se le
+escapan). Se intentó meter un modelo generativo en el propio webview con
+WebGPU y con WASM: **no fue un problema de potencia del equipo, sino de límites
+de memoria que el navegador impone por diseño**. La solución fue mover la
+inferencia al lado nativo — Ollama como *sidecar* de Tauri, arrancado y parado
+desde Rust, invisible para el usuario.
+→ [Diario, entradas 28-31](docs/DIARIO-APRENDIZAJE.md)
+
+**2. Que la IA no invente datos sobre personas reales.**
+Un LLM alucina con total seguridad (en las pruebas llegó a inventar *"165 años
+de experiencia"*). Zalent no le cree: cada dato propuesto pasa por un
+**validador de anclaje** que lo acepta solo si aparece literalmente en el texto
+del CV. El modelo propone, el validador dispone — y se prefiere un hueco a una
+mentira.
+→ [`src/lib/ai/llm-validate.ts`](src/lib/ai/llm-validate.ts)
+
+**3. Cifrar la base de datos sin poder cambiar de librería.**
+`tauri-plugin-sql` no soporta SQLCipher. En vez de reescribir la capa de datos
+se hizo un **fork propio del plugin** que aplica `PRAGMA key`, con la clave
+derivada de la contraseña maestra (Argon2). La migración es reversible y
+verificada: copia de seguridad → cifrar a fichero nuevo → comprobar que no
+falta ninguna fila → y solo entonces reemplazar.
+→ [`src-tauri/vendor/tauri-plugin-sql-cipher/`](src-tauri/vendor/)
+
+## Arquitectura
+
+```
+src/                  La cara — React + TypeScript
+├─ lib/               Núcleo de negocio, sin saber de React
+│  ├─ ai/             Todo lo de IA, aislado en su módulo
+│  ├─ candidates.ts   CRUD, borrado en cascada, RGPD
+│  └─ extract.ts      PDF / Word / OCR → texto
+├─ screens/           Patrón hook (lógica) + componente (presentación)
+└─ shell/             Navegación y tema
+
+src-tauri/            El cerebro — Rust
+└─ src/lib.rs         Comandos nativos, AES-GCM/Argon2,
+                      ciclo de vida del sidecar de IA
+```
+
+**Dos IAs distintas, y conviene no confundirlas:**
+
+| | Motor | ¿Offline? |
+|---|---|---|
+| Búsqueda semántica | MiniLM (embeddings) | ✅ Desde el primer arranque — viaja en el instalador |
+| Extracción y redacción | Qwen2.5 7B vía Ollama | Requiere **una** descarga inicial (4,7 GB); después, sin red |
+
+## Estado
+
+Funcional y empaquetado: instalador de Windows probado de extremo a extremo,
+174 tests, 0 errores de ESLint. Pendiente: firma digital del instalador y
+actualizaciones automáticas (ambas de pago).
 
 ## Documentación
 
 | Documento | Para quién |
 |---|---|
-| [`docs/MANUAL.md`](docs/MANUAL.md) | **Quien usa la app.** Cómo instalarla y usarla, sin tecnicismos. Es lo que se entrega junto al instalador. |
-| [`docs/DIARIO-APRENDIZAJE.md`](docs/DIARIO-APRENDIZAJE.md) | **Quien la construye.** Crónica del proyecto (entradas 0-63) + guía técnica de cómo funciona por dentro (G1-G16). |
-| [`CLAUDE.md`](CLAUDE.md) | Manual operativo: visión, stack, principios de arquitectura y hoja de ruta. |
+| [`docs/MANUAL.md`](docs/MANUAL.md) | Quien **usa** la app. Se entrega con el instalador. |
+| [`docs/DIARIO-APRENDIZAJE.md`](docs/DIARIO-APRENDIZAJE.md) | Quien la **construye**. 63 entradas de crónica + guía técnica. |
+| [`CLAUDE.md`](CLAUDE.md) | Visión, stack y principios de arquitectura. |
 | [`docs/PENDIENTES.md`](docs/PENDIENTES.md) | Lo que queda, por prioridad. |
 
-## Estado
+## Ejecutar en local
 
-Fases 0-7 completas (ver hoja de ruta en [`CLAUDE.md`](CLAUDE.md)).
+Requisitos: Node.js, Rust (`rustup`) y las **Visual Studio C++ Build Tools**
+(carga *"Desarrollo para el escritorio con C++"*). Para compilar con SQLCipher
+hace falta además **Strawberry Perl**.
 
-## Stack
-
-Tauri v2 · React · TypeScript · Vite · CSS a medida · SQLite (SQLCipher) · transformers.js · Ollama (LLM local opcional)
+```bash
+npm install
+npm run tauri dev      # ventana de desarrollo
+npm run tauri build    # instalador
+npm test               # 174 tests
+```
 
 ---
 
-© Zalent. Proyecto original (clean-room). No afiliado a proyectos anteriores.
+<div align="center">
+
+Un producto de **CocoBrain** · Olaz, el coco con cerebro, es su mascota
+
+</div>
