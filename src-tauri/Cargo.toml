@@ -35,9 +35,9 @@ tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Fork local (solo SQLite) del plugin oficial, para poder cifrar la BD con
-# SQLCipher -- tauri-plugin-sql no lo soporta. Ver src-tauri/vendor/ y
-# Diario, entrada 39. De momento sin la clave activada (paso 1 del plan:
-# verificar que el fork se comporta EXACTAMENTE igual que el original).
+# SQLCipher -- tauri-plugin-sql no lo soporta. Aplica `PRAGMA key` al conectar,
+# con la clave derivada de la contraseña maestra (Argon2). La migración es
+# reversible y verificada. Ver src-tauri/vendor/ y Diario, entradas 39-42.
 tauri-plugin-sql = { path = "vendor/tauri-plugin-sql-cipher" }
 argon2 = "0.5"
 getrandom = "0.2"

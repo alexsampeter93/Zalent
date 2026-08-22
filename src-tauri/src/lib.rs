@@ -1359,16 +1359,21 @@ mod vector_tests {
 }
 
 // ============================================================================
-// SPIKE (temporal): hablar con Ollama, que corre NATIVO fuera de Zalent.
+// Puente con Ollama, el sidecar de IA generativa. Corre NATIVO, fuera del
+// webview, y lo arranca y lo cierra Zalent (ver `spawn_ollama` más abajo): el
+// usuario nunca lo ve ni tiene que instalarlo.
+//
+// Nació como un spike para responder si un modelo de 7B extraía bien la ficha
+// en español. La respuesta fue que sí, y el spike se convirtió en el mecanismo
+// definitivo — de ahí que la extracción con IA sea hoy una función real.
 //
 // Por qué desde Rust y no con fetch() desde la interfaz:
 //   1. CORS. En producción el webview tiene origen `tauri://localhost`, que
 //      Ollama rechazaría. Desde Rust no hay navegador, así que no hay CORS.
 //   2. Arquitectura: el lado nativo es el ADAPTADOR al mundo exterior. La
-//      interfaz no debería saber que Ollama existe (principio hexagonal).
+//      interfaz no debería saber que Ollama existe.
 //
-// Objetivo del spike: responder si un modelo BUENO (7B) extrae la ficha bien
-// en español. La velocidad aquí no decide: sabemos que irá lento por CPU.
+// Ver Diario, entradas 28-31.
 // ============================================================================
 
 // Puerto PROPIO, distinto del 11434 por defecto de Ollama: así el sidecar de
