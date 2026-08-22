@@ -241,6 +241,15 @@
   padding: 26px 32px;
   background: var(--cream);
 }
+/* REGLA DE LA CASA: en una app de escritorio, la VENTANA no scrollea. El
+   marco (barra lateral, cabecera de la pantalla) se queda fijo y solo scrollea
+   la zona de contenido — como hace el Explorador de Windows o Ajustes. Un
+   escritorio que scrollea entero como una página web se nota y se ve barato.
+   Por eso TODAS las pantallas usan `screen--fill` + `screen-scroll`, no
+   `.screen` a secas. `.screen` es solo la base común (ancho, columna, hueco).
+   El `overflow-y: auto` de aquí es una RED DE SEGURIDAD: si alguien añade una
+   pantalla sin `--fill`, el contenido seguirá siendo alcanzable en vez de
+   quedar cortado. No es el camino previsto. */
 .screen {
   width: 100%;
   max-width: 780px;
@@ -250,7 +259,7 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  overflow-y: auto;           /* pantallas de documento: scroll interno */
+  overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: none;
 }
@@ -291,25 +300,6 @@
 .screen__sub {
   margin: 2px 0 0;
   color: var(--muted);
-}
-
-.coming {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--muted);
-}
-.coming img {
-  width: 170px;
-  height: 170px;
-  object-fit: contain;
-  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.18));
-}
-.coming h3 {
-  margin: 14px 0 4px;
-  font-family: var(--font-serif);
-  font-weight: 700;
-  font-size: 24px;
-  color: var(--ink);
 }
 
 @media (max-width: 900px) {

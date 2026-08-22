@@ -219,22 +219,3 @@ export function AppShell({
   );
 }
 
-// Pantalla "próximamente" con Olaz, para las secciones aún por construir.
-export function ComingSoon({
-  title,
-  pose = "thinking",
-}: {
-  title: string;
-  pose?: "thinking" | "sleeping" | "magnifier";
-}) {
-  const src = `/olaz/coco-${pose === "magnifier" ? "magnifier-cv" : pose === "sleeping" ? "sleeping-cv" : "thinking-cv"}.png`;
-  return (
-    <div className="screen">
-      <div className="coming">
-        <img src={src} alt="Olaz" />
-        <h3>{title}</h3>
-        <p>Esta sección llegará en una fase próxima.</p>
-      </div>
-    </div>
-  );
-}

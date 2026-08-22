@@ -1058,6 +1058,52 @@ mark {
   }
 }
 
+/* ===== Ventanas BAJAS =====
+   Todo lo responsive del proyecto miraba solo la ANCHURA. Al encoger la
+   ventana en vertical no se adaptaba nada: la decoración seguía ocupando lo
+   mismo y empujaba el contenido, así que aparecía scroll enseguida (lo
+   detectó Alejandro en el Panel).
+   Aquí se recorta primero lo DECORATIVO —nunca datos ni controles—: la
+   mascota se va, los números y los espaciados se ajustan. El scroll sigue
+   existiendo si de verdad no cabe, pero deja de aparecer por culpa de un
+   adorno. El mínimo de ventana (840x600, en tauri.conf.json) acota el caso
+   peor: por debajo de eso ya no se puede encoger. */
+@media (max-height: 760px) {
+  /* Olaz decorativo del Panel: es un guiño, no información. */
+  .panel-mascot {
+    display: none;
+  }
+  .kpi {
+    padding: 14px 16px;
+  }
+  .kpi__value {
+    font-size: 32px;
+  }
+  .dropzone {
+    padding: 22px 24px;
+  }
+}
+
+@media (max-height: 640px) {
+  .screen__title {
+    font-size: 27px;
+  }
+  .content {
+    padding: 16px 24px;
+  }
+  .kpi__value {
+    font-size: 27px;
+  }
+  /* El Olaz que corre sobre la zona de arrastre: se encoge, no desaparece
+     (marca dónde soltar los CVs, así que sigue cumpliendo una función). */
+  .dropzone__olaz {
+    height: 88px;
+  }
+  .dropzone {
+    padding: 16px 20px;
+  }
+}
+
 /* ===== Importar (zona de arrastre) ===== */
 .dropzone {
   display: flex;

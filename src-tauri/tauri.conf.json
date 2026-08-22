@@ -15,6 +15,8 @@
         "title": "Zalent",
         "width": 1100,
         "height": 720,
+        "minWidth": 840,
+        "minHeight": 600,
         "dragDropEnabled": false
       }
     ],
