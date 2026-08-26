@@ -299,125 +299,137 @@ function VacancyDetail({
         ← Volver a las ofertas
       </button>
 
-      <div className="card">
-        <label className="field">
-          <span>Título del puesto</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Descripción de la oferta</span>
-          <textarea
-            className="offer-text"
-            rows={8}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
-        <div className="actions">
-          <button onClick={save} disabled={saving}>
-            {saving ? "Guardando…" : "Guardar cambios"}
-          </button>
-          <button className="btn-ghost" onClick={toggleStatus}>
-            {closed ? "Reabrir oferta" : "Cerrar oferta"}
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <p className="card__title">
-          Candidatos de esta oferta ({assigned.length})
-        </p>
-        {assigned.length === 0 ? (
-          <p className="card__intro">
-            Aún no has asignado candidatos. Puntúalos abajo y añádelos.
-          </p>
-        ) : (
-          <ul className="assigned-list">
-            {assigned.map((c) => (
-              <li key={c.id} className="assigned-row">
-                <span className="avatar">{initials(c.full_name)}</span>
-                <div className="assigned-row__info">
-                  <div className="assigned-row__name">
-                    {c.full_name || "(sin nombre)"}
-                  </div>
-                  <div className="assigned-row__sub">{c.headline || c.email || "—"}</div>
-                </div>
-                <span className={"badge st-" + c.stage}>{c.stage}</span>
-                <button className="btn-ghost btn-sm" onClick={() => unassign(c.id)}>
-                  Quitar
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="card">
-        <p className="card__title">Puntuar candidatos y añadir</p>
-        <p className="card__intro">
-          Compara tu base de candidatos con esta oferta y añade los que encajen.
-        </p>
-        <div className="actions">
-          <button onClick={score} disabled={scoring || !description.trim()}>
-            {scoring ? "Puntuando…" : "Puntuar candidatos"}
-          </button>
-        </div>
-        {!description.trim() && (
-          <p className="card__hint">
-            Añade una descripción a la oferta (arriba) para poder puntuar.
-          </p>
-        )}
-
-        {results && (
-          <ul className="score-list">
-            {results.map((r) => {
-              const already = assignedIds.has(r.id);
-              return (
-                <li key={r.id} className="score-row">
-                  <span className={"fit-pill " + fitBand(r.fit)}>
-                    {(r.fit * 100).toFixed(0)}%
-                  </span>
-                  <div className="score-row__info">
-                    <div className="score-row__name">
-                      {r.full_name || "(sin nombre)"}
-                    </div>
-                    <div className="score-row__sub">{r.headline || r.source_file || "—"}</div>
-                  </div>
-                  {already ? (
-                    <span className="score-row__done">✓ Añadido</span>
-                  ) : (
-                    <button className="btn-sm" onClick={() => assign(r.id)}>
-                      Añadir
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div className="danger-zone">
-        {confirmDelete ? (
-          <div className="danger-zone__confirm">
-            <span>
-              ¿Eliminar esta oferta? Se borra la oferta y sus asignaciones.{" "}
-              <strong>Los CVs no se borran</strong> (siguen en tu almacén).
-            </span>
+      {/* Dos columnas: la oferta a la izquierda, los candidatos a la derecha.
+          Antes iban apiladas y "Puntuar candidatos" —la función principal de
+          esta pantalla— quedaba debajo del corte, con espacio horizontal de
+          sobra sin usar. Ahora se ve la oferta y su matching a la vez, y en
+          ventanas normales no hace falta scroll. Cada lista larga scrollea
+          por su cuenta (ver `.vac-detail` en App.css). */}
+      <div className="vac-detail">
+        <div className="vac-detail__col">
+          <div className="card">
+            <label className="field">
+              <span>Título del puesto</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Descripción de la oferta</span>
+              <textarea
+                className="offer-text"
+                rows={8}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </label>
             <div className="actions">
-              <button className="btn-danger" onClick={doDelete}>
-                Sí, eliminar oferta
+              <button onClick={save} disabled={saving}>
+                {saving ? "Guardando…" : "Guardar cambios"}
               </button>
-              <button className="btn-ghost" onClick={() => setConfirmDelete(false)}>
-                Cancelar
+              <button className="btn-ghost" onClick={toggleStatus}>
+                {closed ? "Reabrir oferta" : "Cerrar oferta"}
               </button>
             </div>
           </div>
-        ) : (
-          <button className="btn-danger-ghost" onClick={() => setConfirmDelete(true)}>
-            Eliminar oferta
-          </button>
-        )}
+
+          <div className="danger-zone">
+            {confirmDelete ? (
+              <div className="danger-zone__confirm">
+                <span>
+                  ¿Eliminar esta oferta? Se borra la oferta y sus asignaciones.{" "}
+                  <strong>Los CVs no se borran</strong> (siguen en tu almacén).
+                </span>
+                <div className="actions">
+                  <button className="btn-danger" onClick={doDelete}>
+                    Sí, eliminar oferta
+                  </button>
+                  <button className="btn-ghost" onClick={() => setConfirmDelete(false)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn-danger-ghost" onClick={() => setConfirmDelete(true)}>
+                Eliminar oferta
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="vac-detail__col">
+          <div className="card">
+            <p className="card__title">
+              Candidatos de esta oferta ({assigned.length})
+            </p>
+            {assigned.length === 0 ? (
+              <p className="card__intro">
+                Aún no has asignado candidatos. Puntúalos al lado y añádelos.
+              </p>
+            ) : (
+              <ul className="assigned-list vac-scroll">
+                {assigned.map((c) => (
+                  <li key={c.id} className="assigned-row">
+                    <span className="avatar">{initials(c.full_name)}</span>
+                    <div className="assigned-row__info">
+                      <div className="assigned-row__name">
+                        {c.full_name || "(sin nombre)"}
+                      </div>
+                      <div className="assigned-row__sub">{c.headline || c.email || "—"}</div>
+                    </div>
+                    <span className={"badge st-" + c.stage}>{c.stage}</span>
+                    <button className="btn-ghost btn-sm" onClick={() => unassign(c.id)}>
+                      Quitar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="card">
+            <p className="card__title">Puntuar candidatos y añadir</p>
+            <p className="card__intro">
+              Compara tu base de candidatos con esta oferta y añade los que encajen.
+            </p>
+            <div className="actions">
+              <button onClick={score} disabled={scoring || !description.trim()}>
+                {scoring ? "Puntuando…" : "Puntuar candidatos"}
+              </button>
+            </div>
+            {!description.trim() && (
+              <p className="card__hint">
+                Añade una descripción a la oferta (al lado) para poder puntuar.
+              </p>
+            )}
+
+            {results && (
+              <ul className="score-list vac-scroll">
+                {results.map((r) => {
+                  const already = assignedIds.has(r.id);
+                  return (
+                    <li key={r.id} className="score-row">
+                      <span className={"fit-pill " + fitBand(r.fit)}>
+                        {(r.fit * 100).toFixed(0)}%
+                      </span>
+                      <div className="score-row__info">
+                        <div className="score-row__name">
+                          {r.full_name || "(sin nombre)"}
+                        </div>
+                        <div className="score-row__sub">{r.headline || r.source_file || "—"}</div>
+                      </div>
+                      {already ? (
+                        <span className="score-row__done">✓ Añadido</span>
+                      ) : (
+                        <button className="btn-sm" onClick={() => assign(r.id)}>
+                          Añadir
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
     </>
   );

@@ -98,6 +98,9 @@ button:disabled {
 .actions {
   margin-top: 1rem;
   display: flex;
+  /* Sin esto, en un panel estrecho (Ajustes con la ventana al mínimo) dos
+     botones con texto largo se salen de la tarjeta en vez de bajar de línea. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
 }
@@ -131,6 +134,10 @@ button:disabled {
   text-align: left;
   color: var(--danger);
   font-size: 0.8rem;
+  /* Aquí van rutas de Windows y nombres de fichero: cadenas largas SIN
+     espacios, que sin esto se salen de la tarjeta en vez de partirse
+     (Ajustes → Seguridad lista las copias con su ruta completa). */
+  overflow-wrap: anywhere;
 }
 
 .cv-text {
@@ -1284,6 +1291,43 @@ mark {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
 }
+
+/* --- Detalle de una oferta: dos columnas --- */
+/* La oferta a la izquierda, sus candidatos y el matching a la derecha. En una
+   sola columna, "Puntuar candidatos" —lo que de verdad se viene a hacer aquí—
+   quedaba fuera de pantalla mientras sobraba ancho a los lados. */
+.vac-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.vac-detail__col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+/* Las listas largas scrollean SOLO ellas, en vez de estirar la página. Es la
+   diferencia entre "la pantalla scrollea" y "esta lista tiene más elementos". */
+.vac-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+/* Sin ancho para dos columnas, vuelve a una sola y las listas dejan de estar
+   acotadas: en vertical hay sitio de sobra, y un scroll dentro de otro molesta. */
+@media (max-width: 900px) {
+  .vac-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vac-scroll {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
 .vac-card {
   display: flex;
   flex-direction: column;
@@ -2106,9 +2150,12 @@ mark {
   display: flex;
   gap: 24px;
 }
+/* El menú de secciones de Ajustes. Se estrecha con la ventana: 210px fijos
+   se comían casi un tercio del ancho útil con la ventana al mínimo, dejando
+   el panel de contenido apretadísimo. */
 .settings2__nav {
   flex: none;
-  width: 210px;
+  width: clamp(150px, 22vw, 210px);
   display: flex;
   flex-direction: column;
   gap: 4px;
