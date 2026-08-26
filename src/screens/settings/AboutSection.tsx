@@ -26,8 +26,8 @@ export function AboutSection() {
       {version && <p className="about__ver">Versión {version}</p>}
       <p className="card__intro">
         Gestor de CVs y talento <strong>local-first</strong> con IA. Tus datos,
-        en tu equipo. Zalent es un producto de <strong>CocoBrain</strong>; Olaz,
-        el coco con cerebro, es su mascota.
+        en tu equipo. Zalent es un producto de <strong>CocoBrain</strong>, y
+        Olaz te da la bienvenida.
       </p>
     </section>
   );

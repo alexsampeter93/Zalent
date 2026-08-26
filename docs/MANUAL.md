@@ -36,7 +36,7 @@ Todo ocurre **dentro de tu equipo**: los CVs no se suben a ningún sitio.
 **Qué necesitas:** un ordenador con Windows de 64 bits. Nada más — ni cuenta, ni
 suscripción, ni conexión a internet para el uso normal.
 
-1. Ejecuta `Zalent_0.1.2_x64-setup.exe`.
+1. Ejecuta `Zalent_0.1.3_x64-setup.exe`.
 2. **Windows te mostrará un aviso azul** que dice *"Windows protegió tu PC"*.
    Es normal y no significa que haya un virus: aparece con **cualquier** programa
    que no haya pagado un certificado de firma digital (unos 300 € al año). Pulsa
@@ -323,4 +323,4 @@ Por honestidad, para que sepas dónde están los límites:
 
 ---
 
-_Zalent · versión 0.1.2 · un producto de CocoBrain_
+_Zalent · versión 0.1.3 · un producto de CocoBrain_
