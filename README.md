@@ -9,8 +9,11 @@
 Búsqueda semántica, lectura automática de currículums y matching contra ofertas —
 sin servidores, sin suscripción y sin que los datos salgan del equipo.
 
-<!-- TODO(portfolio): sustituir por capturas reales. Ver docs/PORTFOLIO.md -->
-<!-- ![Zalent](docs/img/captura-candidatos.png) -->
+![Zalent — búsqueda semántica con la evidencia resaltada](docs/img/02-busqueda-semantica.png)
+
+<sub>Buscando *"gestión de equipos y turnos"*: encuentra un CV que dice
+*"coordinación de un equipo de 12 personas, planificación de turnos"* y
+resalta el fragmento por el que lo eligió.</sub>
 
 Tauri v2 · React · TypeScript · Rust · SQLite (SQLCipher) · transformers.js · Ollama
 

@@ -46,6 +46,11 @@ Thumbs.db
 assets/references/
 *.zip
 
+# Grabaciones de la demo: decenas de MB que inflarían el repo para siempre, y
+# su sitio es la web del portfolio (o YouTube), no un commit. Las capturas SÍ
+# se versionan (docs/img/): pesan poco y son la portada del README.
+assets/video/
+
 # Material de reserva de Olaz (~27 MB): hojas de sprites y frames en crudo de
 # los que salieron las animaciones. Se guardan por si hay que regenerarlas,
 # pero no son código ni entran en la app.
