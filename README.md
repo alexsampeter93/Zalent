@@ -58,7 +58,7 @@ WebGPU y con WASM: **no fue un problema de potencia del equipo, sino de límites
 de memoria que el navegador impone por diseño**. La solución fue mover la
 inferencia al lado nativo — Ollama como *sidecar* de Tauri, arrancado y parado
 desde Rust, invisible para el usuario.
-→ [Diario, entradas 28-31](docs/DIARIO-APRENDIZAJE.md)
+→ [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs) (arranque y ciclo de vida del sidecar)
 
 **2. Que la IA no invente datos sobre personas reales.**
 Un LLM alucina con total seguridad (en las pruebas llegó a inventar *"165 años
@@ -149,12 +149,9 @@ actualizaciones automáticas (ambas de pago).
 
 ## Documentación
 
-| Documento | Para quién |
-|---|---|
-| [`docs/MANUAL.md`](docs/MANUAL.md) | Quien **usa** la app. Se entrega con el instalador. |
-| [`docs/DIARIO-APRENDIZAJE.md`](docs/DIARIO-APRENDIZAJE.md) | Quien la **construye**. 63 entradas de crónica + guía técnica. |
-| [`CLAUDE.md`](CLAUDE.md) | Visión, stack y principios de arquitectura. |
-| [`docs/PENDIENTES.md`](docs/PENDIENTES.md) | Lo que queda, por prioridad. |
+[`docs/MANUAL.md`](docs/MANUAL.md) — el manual de uso, escrito para quien
+recibe la app, no para quien la programa. Explica desde instalarla hasta el
+RGPD, sin dar nada por sabido.
 
 ## Ejecutar en local
 
