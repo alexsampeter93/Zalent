@@ -9,15 +9,19 @@ import { MatchTag } from "../../components/MatchTag";
 import { highlight } from "../../components/highlight";
 import { formatDateTime, initials, RELEVANT_FLOOR, matchBand } from "../../lib/display";
 import type { CandidatesState } from "./useCandidates";
+import type { AiAssistState } from "./useAiAssist";
 
 // La pantalla Candidatos, ya SOLO presentación: tabla + filtros + selección
 // múltiple + vista maestro-detalle (ficha con edición, ofertas, voto,
-// etiquetas, notas). Todo el estado y la lógica viven en `useCandidates`.
+// etiquetas, notas). Todo el estado y la lógica viven en `useCandidates`
+// (y el del asistente de IA, aparte, en `useAiAssist` — ver esa nota).
 export function CandidatesScreen({
   cand,
+  aiAssist,
   onNavigateToImport,
 }: {
   cand: CandidatesState;
+  aiAssist: AiAssistState;
   onNavigateToImport: () => void;
 }) {
   const {
@@ -683,6 +687,7 @@ export function CandidatesScreen({
                 <AiAssistCard
                   candidate={detail}
                   vacancyTitle={candOffers[0]?.title}
+                  aiAssist={aiAssist}
                 />
 
                 <p className="card__title notes-title">Notas ({notes.length})</p>

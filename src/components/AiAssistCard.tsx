@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CandidateDetail } from "../lib/candidates";
-import { isModelReady, type GenerateResult } from "../lib/ai/ollama";
+import { isModelReady } from "../lib/ai/ollama";
 import {
-  summarizeCandidate,
-  interviewQuestions,
-  rejectionEmail,
-} from "../lib/ai/assist";
+  AI_ASSIST_LABELS,
+  type AiAssistKind,
+  type AiAssistState,
+} from "../screens/candidates/useAiAssist";
 import { reportError } from "../lib/errors";
 
 // Asistente de IA en la ficha del candidato: resumen, preguntas de entrevista y
@@ -14,31 +14,27 @@ import { reportError } from "../lib/errors";
 // Todo lo que genera es un BORRADOR editable, nunca un dato dado por cierto:
 // por eso el resultado va en un textarea (se puede corregir antes de usarlo) y
 // hay un aviso permanente de que lo ha escrito una IA. Ver Diario, entrada 51.
+//
+// El resultado en sí vive en `useAiAssist` (App), no aquí: así sobrevive a
+// cambiar de pantalla mientras la IA responde. Ver `useAiAssist.ts`.
 
-type Kind = "summary" | "interview" | "rejection";
-
-const LABELS: Record<Kind, string> = {
-  summary: "Resumen del perfil",
-  interview: "Preguntas de entrevista",
-  rejection: "Email de rechazo",
-};
+const LABELS = AI_ASSIST_LABELS;
 
 export function AiAssistCard({
   candidate,
   vacancyTitle,
+  aiAssist,
 }: {
   candidate: CandidateDetail;
   // Si el candidato está en una oferta, el email de rechazo la menciona.
   vacancyTitle?: string;
+  aiAssist: AiAssistState;
 }) {
   // null = aún comprobando; el modelo tarda un momento en responder al arranque.
   const [available, setAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
-  const [busy, setBusy] = useState<Kind | null>(null);
-  const [kind, setKind] = useState<Kind | null>(null);
-  const [text, setText] = useState("");
-  const [ms, setMs] = useState(0);
   const [copied, setCopied] = useState(false);
+  const { kind, text, ms, busy } = aiAssist.resultFor(candidate.id);
 
   async function check() {
     setChecking(true);
@@ -99,32 +95,6 @@ export function AiAssistCard({
     );
   }
 
-  async function run(k: Kind) {
-    setBusy(k);
-    setKind(k);
-    setText("");
-    setCopied(false);
-    try {
-      let res: GenerateResult;
-      if (k === "summary") res = await summarizeCandidate(candidate);
-      else if (k === "interview") res = await interviewQuestions(candidate);
-      else res = await rejectionEmail(candidate, vacancyTitle);
-
-      if (res.error) {
-        reportError(`La IA no pudo generar «${LABELS[k]}»`, res.error);
-        setKind(null);
-        return;
-      }
-      setText(res.text);
-      setMs(res.ms);
-    } catch (e) {
-      reportError(`La IA no pudo generar «${LABELS[k]}»`, e);
-      setKind(null);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
@@ -143,11 +113,11 @@ export function AiAssistCard({
       </p>
 
       <div className="ai-assist__actions">
-        {(Object.keys(LABELS) as Kind[]).map((k) => (
+        {(Object.keys(LABELS) as AiAssistKind[]).map((k) => (
           <button
             key={k}
             className="btn-sm"
-            onClick={() => run(k)}
+            onClick={() => aiAssist.run(candidate, k, vacancyTitle)}
             disabled={busy !== null}
           >
             {busy === k ? "Generando…" : LABELS[k]}
@@ -177,7 +147,7 @@ export function AiAssistCard({
             className="ai-assist__text"
             value={text}
             onChange={(e) => {
-              setText(e.target.value);
+              aiAssist.setText(candidate.id, e.target.value);
               setCopied(false);
             }}
             rows={kind === "summary" ? 5 : 9}

@@ -9,6 +9,7 @@ import { Panel } from "./screens/Panel";
 import { useImport } from "./screens/import/useImport";
 import { ImportScreen } from "./screens/import/ImportScreen";
 import { useCandidates } from "./screens/candidates/useCandidates";
+import { useAiAssist } from "./screens/candidates/useAiAssist";
 import { CandidatesScreen } from "./screens/candidates/CandidatesScreen";
 import { ErrorToasts } from "./components/ErrorToasts";
 import { Onboarding } from "./screens/Onboarding";
@@ -38,6 +39,10 @@ function App() {
     active: screen === "importar",
     onImported: cand.refreshAll,
   });
+  // Igual que `imp`: se instancia aquí, no dentro de la pantalla, para que un
+  // resumen/pregunta/email en marcha sobreviva a cambiar de pantalla mientras
+  // la IA responde.
+  const aiAssist = useAiAssist();
 
   // ¿Hay contraseña maestra? Si la hay, la app arranca bloqueada.
   useEffect(() => {
@@ -75,6 +80,7 @@ function App() {
         {screen === "candidatos" && (
           <CandidatesScreen
             cand={cand}
+            aiAssist={aiAssist}
             onNavigateToImport={() => setScreen("importar")}
           />
         )}
