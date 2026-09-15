@@ -23,5 +23,3 @@ ESPECIFICACIONES
 CÓMO SE USA EN LA APP
 ---------------------
 Con el componente <OlazSprite name="olaz-wave" frames={8} fps={10} />.
-Dile a Claude: el nombre base, cuántos frames, los fps que quieres y
-dónde colocarlo, y lo enchufa.
