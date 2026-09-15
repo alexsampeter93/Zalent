@@ -1,4 +1,3 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::collections::BTreeMap;
 use std::fs;
 use std::str::FromStr;
@@ -21,11 +20,6 @@ use tauri_plugin_shell::ShellExt;
 // instantáneo y además mata también a los hijos que Ollama lanza por su
 // cuenta (`llama-server.exe`, el motor real). Ver Diario, entrada 30.
 struct OllamaSidecar(Mutex<Option<u32>>);
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 // Clave de cifrado en memoria durante la sesión (nunca en disco). Se rellena
 // al desbloquear con la contraseña maestra; None = sin cifrado activo.
@@ -138,7 +132,6 @@ fn delete_cv(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// Ruta de la carpeta de datos (para abrirla / mostrarla).
 #[tauri::command]
 fn data_dir(app: tauri::AppHandle) -> Result<String, String> {
     Ok(app
@@ -164,7 +157,6 @@ fn dir_size(path: &std::path::Path) -> u64 {
     total
 }
 
-// Tamaño total en disco de la carpeta de datos (bytes).
 #[tauri::command]
 fn data_dir_size(app: tauri::AppHandle) -> Result<u64, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -1907,7 +1899,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            greet,
             save_cv,
             delete_cv,
             read_cv_temp,

@@ -178,7 +178,6 @@ export async function cleanupOrphans(): Promise<void> {
   );
 }
 
-// Estados posibles del candidato en el proceso de selección.
 export const STATUSES = [
   { key: "nuevo", label: "Nuevo" },
   { key: "entrevista", label: "Entrevista" },

@@ -129,7 +129,7 @@ export function useCandidates({
   useEffect(() => {
     if (!ready) return;
     (async () => {
-      await cleanupOrphans(); // limpia huérfanos de borrados antiguos
+      await cleanupOrphans();
       await refreshCandidates();
       await refreshFilters();
     })();

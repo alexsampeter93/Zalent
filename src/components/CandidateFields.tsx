@@ -27,7 +27,6 @@ export function CandidateFieldsForm({
   );
 }
 
-// Un campo etiquetado del formulario (label arriba, control debajo).
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="field">
@@ -37,7 +36,6 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-// Un dato de solo lectura en la ficha (label + valor, con "—" si está vacío).
 export function Info({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="info">

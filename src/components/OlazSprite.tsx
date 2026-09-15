@@ -84,12 +84,8 @@ export function OlazSprite({
   }, [hovering, playOn]);
 
   const frame = seq[pos] ?? 1;
-  // Tamaño: SIEMPRE por altura. Ajustar por anchura es imposible con este
-  // personaje — al levantar el brazo el lienzo se ensancha, así que la misma
-  // anchura lo encogería justo en ese frame. De alto mide siempre igual.
-  //
-  // Y si no se pasa ninguna medida, NO se inyecta estilo en línea: manda el
-  // CSS de la clase. (Antes había un `width: 96` por defecto que pisaba
+  // Si no se pasa ninguna medida, NO se inyecta estilo en línea: manda el CSS
+  // de la clase. (Antes había un `width: 96` por defecto que pisaba
   // silenciosamente al CSS y dejaba a Olaz a 64px en vez de 114.)
   const size: React.CSSProperties = height
     ? { height, width: width ?? "auto" }
